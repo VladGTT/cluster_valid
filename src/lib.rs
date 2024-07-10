@@ -45,11 +45,11 @@ use pyo3::{pymodule, types::PyModule, Bound, PyResult, Python};
 #[pymodule]
 mod rust_ext {
 
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use ndarray::{
         parallel::prelude::IntoParallelIterator, ArcArray2, Array1, ArrayView, ArrayView1,
-        NdProducer,
+        ArrayView2, NdProducer,
     };
     use numpy::{
         ndarray::{Array2, Zip},
@@ -70,6 +70,28 @@ mod rust_ext {
     //
     // }
 
+    struct Grouper {
+        data: Vec<Array2<f64>>,
+    }
+    // impl<T> From<ArrayViewD<'_, T>> for Grouper<T> {
+    //     fn from(array: ArrayViewD<'_, T>) -> Self {
+    //         Self::group(array)
+    //     }
+    // }
+    impl Grouper {
+        fn group(x: ArrayView2<'_, f64>, y: ArrayView1<i32>) -> Self {
+            let mut clusters: Vec<Array2<f64>> = Vec::default();
+            Zip::from(x.rows()).and(y).par_for_each(move |x, y| {
+                // let clusters = clusters;
+                while *y as usize - clusters.len() >= 0 {
+                    clusters.push(Array2::zeros((1, x.shape()[1])));
+                }
+                clusters[*y as usize].push_row(x);
+            });
+            Self { data: clusters }
+        }
+    }
+
     #[pyfunction]
     fn silhouette_score<'py>(
         x: PyReadonlyArrayDyn<'py, f64>,
@@ -82,18 +104,18 @@ mod rust_ext {
         result.map_err(|msg| PyValueError::new_err(msg))
     }
 
-    fn calc_clusters_centers(x: ArrayViewD<f64>, y: ArrayViewD<i32>) -> Arc<Array2<f64>> {
-        let mut clusters = Arc::new(Array2::<f64>::zeros((1, x.shape()[1])));
-        let num_cluster_elements = Array1::<i32>::zeros(1);
-        Zip::from(x.rows()).and(y).par_for_each(|x, y| {
-            while *y as usize - clusters.shape()[0] >= 0 {
-                let new_row = Array1::<f64>::zeros(x.shape()[1]);
-                *clusters.push_row(ArrayView1::<f64>::from(&new_row));
-            }
-        });
-
-        clusters
-    }
+    // fn calc_clusters_centers(x: ArrayViewD<f64>, y: ArrayViewD<i32>) -> Arc<Array2<f64>> {
+    //     let mut clusters = Arc::new(Array2::<f64>::zeros((1, x.shape()[1])));
+    //     let num_cluster_elements = Array1::<i32>::zeros(1);
+    //     Zip::from(x.rows()).and(y).par_for_each(|x, y| {
+    //         while *y as usize - clusters.shape()[0] >= 0 {
+    //             let new_row = Array1::<f64>::zeros(x.shape()[1]);
+    //             *clusters.push_row(ArrayView1::<f64>::from(&new_row));
+    //         }
+    //     });
+    //
+    //     clusters
+    // }
     fn silhouette_index_calc(x: ArrayViewD<f64>, y: ArrayViewD<i32>) -> Result<f64, String> {
         // Finding center of clusters
         // for row in Zip::from(x.rows).and(y) {

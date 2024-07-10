@@ -1,5 +1,7 @@
 /target
 
+/.ipynb_checkpoints
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 .pytest_cache/
@@ -9,9 +11,9 @@ __pycache__/
 *.so
 
 # Distribution / packaging
-.Python
-.venv/
-.env/
+/.Python
+/.venv
+/.env
 bin/
 build/
 develop-eggs/
