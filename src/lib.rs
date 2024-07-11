@@ -45,11 +45,17 @@ use pyo3::{pymodule, types::PyModule, Bound, PyResult, Python};
 #[pymodule]
 mod rust_ext {
 
-    use std::sync::{Arc, Mutex};
+    use std::{
+        collections::HashMap,
+        iter::Zip,
+        ops::Sub,
+        sync::{Arc, Mutex},
+    };
 
     use ndarray::{
-        parallel::prelude::IntoParallelIterator, ArcArray2, Array1, ArrayView, ArrayView1,
-        ArrayView2, NdProducer,
+        parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
+        ArcArray2, Array1, ArrayBase, ArrayView, ArrayView1, ArrayView2, Axis, NdProducer,
+        ViewRepr,
     };
     use numpy::{
         ndarray::{Array2, Zip},
@@ -59,19 +65,8 @@ mod rust_ext {
 
     use super::*;
 
-    // fn calc_cohersion<'py>(
-    //     i: i32,
-    //     x: PyReadonlyArrayDyn<'py, f64>,
-    //     y: PyReadonlyArrayDyn<'py, npy_int32>,
-    // ) -> f64 {
-    //
-    //
-    //
-    //
-    // }
-
     struct Grouper {
-        data: Vec<Array2<f64>>,
+        pub data: HashMap<i32, Array2<f64>>,
     }
     // impl<T> From<ArrayViewD<'_, T>> for Grouper<T> {
     //     fn from(array: ArrayViewD<'_, T>) -> Self {
@@ -80,15 +75,19 @@ mod rust_ext {
     // }
     impl Grouper {
         fn group(x: ArrayView2<'_, f64>, y: ArrayView1<i32>) -> Self {
-            let mut clusters: Vec<Array2<f64>> = Vec::default();
-            Zip::from(x.rows()).and(y).par_for_each(move |x, y| {
-                // let clusters = clusters;
-                while *y as usize - clusters.len() >= 0 {
-                    clusters.push(Array2::zeros((1, x.shape()[1])));
+            let clusters: Mutex<HashMap<i32, Array2<f64>>> = Mutex::new(HashMap::new());
+            //let mut clusters: Mutex<Vec<Array2<f64>>> = Mutex::new(Vec::default());
+            Zip::from(x.rows()).and(y).par_for_each(|x, y| {
+                let mut clusters = clusters.lock().unwrap();
+                if !clusters.contains_key(y) {
+                    clusters.insert(*y, Array2::default((0, x.shape()[1])));
                 }
-                clusters[*y as usize].push_row(x);
+                let group = clusters.get_mut(y).unwrap();
+                group.push_row(x).unwrap();
             });
-            Self { data: clusters }
+            Self {
+                data: clusters.into_inner().unwrap(),
+            }
         }
     }
 
@@ -104,27 +103,26 @@ mod rust_ext {
         result.map_err(|msg| PyValueError::new_err(msg))
     }
 
-    // fn calc_clusters_centers(x: ArrayViewD<f64>, y: ArrayViewD<i32>) -> Arc<Array2<f64>> {
-    //     let mut clusters = Arc::new(Array2::<f64>::zeros((1, x.shape()[1])));
-    //     let num_cluster_elements = Array1::<i32>::zeros(1);
-    //     Zip::from(x.rows()).and(y).par_for_each(|x, y| {
-    //         while *y as usize - clusters.shape()[0] >= 0 {
-    //             let new_row = Array1::<f64>::zeros(x.shape()[1]);
-    //             *clusters.push_row(ArrayView1::<f64>::from(&new_row));
-    //         }
-    //     });
-    //
-    //     clusters
-    // }
-    fn silhouette_index_calc(x: ArrayViewD<f64>, y: ArrayViewD<i32>) -> Result<f64, String> {
-        // Finding center of clusters
-        // for row in Zip::from(x.rows).and(y) {
-        //
-        // }
+    fn calc_clusters_centers(grouper: &Grouper) -> HashMap<i32, Array1<f64>> {
+        let mut retval: HashMap<i32, Array1<f64>> = HashMap::new();
+        for (index, val) in grouper.data.iter() {
+            retval.insert(*index, val.sum_axis(Axis(0)));
+        }
+        retval
+    }
 
-        // let mut temp = Array3::<f64>::zeros((1, x_shape[1], 1));
-        // let zipped = Zip::from(x.rows()).and(y);
-        // zipped.par_for_each(|x, y| {});
+    fn find_euclidean_distance_for_point(
+        point: &ArrayView1<f64>,
+        grouper: &Grouper,
+        index: i32,
+    ) -> f64 {
+        let group_data = grouper.data.get(&index).unwrap();
+        // let data = group_data.sub(point);
+
+        0.8
+    }
+
+    fn silhouette_index_calc(x: ArrayViewD<f64>, y: ArrayViewD<i32>) -> Result<f64, String> {
         Ok(0.8)
     }
 
