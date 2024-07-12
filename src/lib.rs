@@ -47,13 +47,15 @@ mod rust_ext {
 
     use std::{
         collections::HashMap,
-        iter::Zip,
         ops::Sub,
         sync::{Arc, Mutex},
     };
 
     use ndarray::{
-        parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
+        parallel::prelude::{
+            IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+            ParallelIterator,
+        },
         ArcArray2, Array1, ArrayBase, ArrayView, ArrayView1, ArrayView2, Axis, NdProducer,
         ViewRepr,
     };
@@ -111,15 +113,27 @@ mod rust_ext {
         retval
     }
 
-    fn find_euclidean_distance_for_point(
+    fn find_average_euclidean_distance_for_point(
         point: &ArrayView1<f64>,
-        grouper: &Grouper,
-        index: i32,
+        cluster: &ArrayView2<f64>,
     ) -> f64 {
-        let group_data = grouper.data.get(&index).unwrap();
-        // let data = group_data.sub(point);
+        let mut store = Vec::default();
+        cluster
+            .axis_iter(Axis(0))
+            .into_par_iter()
+            .map(|row| point.sub(&row))
+            .collect_into_vec(&mut store);
 
-        0.8
+        let store: Vec<f64> = store
+            .into_par_iter()
+            .map(|item| {
+                let res = item.dot(&item);
+                f64::sqrt(res)
+            })
+            .collect();
+        let n = store.len() as f64;
+        let res: f64 = store.into_par_iter().sum();
+        res / n
     }
 
     fn silhouette_index_calc(x: ArrayViewD<f64>, y: ArrayViewD<i32>) -> Result<f64, String> {
