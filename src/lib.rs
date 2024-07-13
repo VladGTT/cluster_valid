@@ -1,6 +1,5 @@
 use numpy::ndarray::{ArrayD, ArrayViewD, ArrayViewMutD};
 use numpy::{IntoPyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
-use pyo3::IntoPy;
 use pyo3::{pymodule, types::PyModule, Bound, PyResult, Python};
 
 // #[pymodule]
@@ -46,8 +45,7 @@ use pyo3::{pymodule, types::PyModule, Bound, PyResult, Python};
 mod rust_ext {
 
     use std::{
-        collections::HashMap,
-        ops::Sub,
+        collections::{HashMap, HashSet},
         sync::{Arc, Mutex},
     };
 
@@ -57,7 +55,7 @@ mod rust_ext {
             ParallelIterator,
         },
         ArcArray2, Array1, ArrayBase, ArrayView, ArrayView1, ArrayView2, Axis, NdProducer,
-        ViewRepr,
+        ShapeBuilder, ViewRepr,
     };
     use numpy::{
         ndarray::{Array2, Zip},
@@ -67,32 +65,6 @@ mod rust_ext {
 
     use super::*;
 
-    struct Grouper {
-        pub data: HashMap<i32, Array2<f64>>,
-    }
-    // impl<T> From<ArrayViewD<'_, T>> for Grouper<T> {
-    //     fn from(array: ArrayViewD<'_, T>) -> Self {
-    //         Self::group(array)
-    //     }
-    // }
-    impl Grouper {
-        fn group(x: ArrayView2<'_, f64>, y: ArrayView1<i32>) -> Self {
-            let clusters: Mutex<HashMap<i32, Array2<f64>>> = Mutex::new(HashMap::new());
-            //let mut clusters: Mutex<Vec<Array2<f64>>> = Mutex::new(Vec::default());
-            Zip::from(x.rows()).and(y).par_for_each(|x, y| {
-                let mut clusters = clusters.lock().unwrap();
-                if !clusters.contains_key(y) {
-                    clusters.insert(*y, Array2::default((0, x.shape()[1])));
-                }
-                let group = clusters.get_mut(y).unwrap();
-                group.push_row(x).unwrap();
-            });
-            Self {
-                data: clusters.into_inner().unwrap(),
-            }
-        }
-    }
-
     #[pyfunction]
     fn silhouette_score<'py>(
         x: PyReadonlyArrayDyn<'py, f64>,
@@ -101,43 +73,100 @@ mod rust_ext {
         let x = x.as_array();
         let y = y.as_array();
 
+        let shape = match (x.shape().get(0), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err(format!("x is not 2 dimentional"))),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
         let result = silhouette_index_calc(x, y);
         result.map_err(|msg| PyValueError::new_err(msg))
     }
 
-    fn calc_clusters_centers(grouper: &Grouper) -> HashMap<i32, Array1<f64>> {
+    fn group(
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<i32>,
+    ) -> Result<HashMap<i32, Array2<f64>>, String> {
+        let clusters: Mutex<HashMap<i32, Array2<f64>>> = Mutex::new(HashMap::new());
+        let _ = Zip::from(x.rows())
+            .and(y)
+            .into_par_iter()
+            .map(|(x, y)| {
+                let mut clusters = clusters
+                    .lock()
+                    .map_err(|_| "Cant get a lock on hashmap".to_string())?;
+                if !clusters.contains_key(y) {
+                    clusters.insert(*y, Array2::default((0, x.shape()[0])));
+                }
+                let group = clusters
+                    .get_mut(y)
+                    .ok_or("Can`t get group from hashmap".to_string())?;
+                group
+                    .push(Axis(0), x)
+                    .map_err(|_| "Couldn`t add point to cluster".to_string())?;
+                Ok(())
+            })
+            .collect::<Result<(), String>>()?;
+        let res = clusters.into_inner().map_err(|msg| format!("{msg}"))?;
+        Ok(res)
+    }
+
+    fn calc_clusters_centers(groups: &HashMap<i32, Array2<f64>>) -> HashMap<i32, Array1<f64>> {
         let mut retval: HashMap<i32, Array1<f64>> = HashMap::new();
-        for (index, val) in grouper.data.iter() {
+        for (index, val) in groups.iter() {
             retval.insert(*index, val.sum_axis(Axis(0)));
         }
         retval
     }
 
-    fn find_average_euclidean_distance_for_point(
-        point: &ArrayView1<f64>,
-        cluster: &ArrayView2<f64>,
-    ) -> f64 {
-        let mut store = Vec::default();
-        cluster
-            .axis_iter(Axis(0))
-            .into_par_iter()
-            .map(|row| point.sub(&row))
-            .collect_into_vec(&mut store);
-
-        let store: Vec<f64> = store
-            .into_par_iter()
-            .map(|item| {
-                let res = item.dot(&item);
-                f64::sqrt(res)
-            })
-            .collect();
-        let n = store.len() as f64;
-        let res: f64 = store.into_par_iter().sum();
-        res / n
+    fn find_euclidean_distance(point1: &ArrayView1<f64>, point2: &ArrayView1<f64>) -> f64 {
+        let sub_res = point2 - point1;
+        f64::sqrt(sub_res.dot(&sub_res))
     }
 
-    fn silhouette_index_calc(x: ArrayViewD<f64>, y: ArrayViewD<i32>) -> Result<f64, String> {
-        Ok(0.8)
+    fn silhouette_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        let groups = group(x, y)?;
+        let centers = calc_clusters_centers(&groups);
+        let scores = Zip::from(x.rows())
+            .and(y)
+            .into_par_iter()
+            .map(|(x, y)| {
+                let min = (&centers)
+                    .into_par_iter()
+                    .map(|(i, row)| (i, find_euclidean_distance(&x, &row.view())))
+                    .min_by(|(_, x), (_, y)| x.total_cmp(y))
+                    .unwrap();
+
+                let nearest_cluster = groups.get(&min.0).unwrap();
+                nearest_cluster
+                    .axis_iter(Axis(0))
+                    .into_par_iter()
+                    .map(|row| find_euclidean_distance(&x, &row))
+                    .collect::<Vec<f64>>();
+
+                let a: f64 = nearest_cluster.iter().sum::<f64>() / nearest_cluster.len() as f64;
+
+                let point_cluster = groups.get(y).unwrap();
+                point_cluster
+                    .axis_iter(Axis(0))
+                    .into_par_iter()
+                    .map(|row| find_euclidean_distance(&x, &row))
+                    .collect::<Vec<f64>>();
+
+                let b: f64 = point_cluster.iter().sum::<f64>() / point_cluster.len() as f64;
+                (a - b) / f64::max(a, b)
+            })
+            .collect::<Vec<f64>>();
+
+        let res = scores.iter().sum::<f64>() / scores.len() as f64;
+        Ok(res)
     }
 
     #[pymodule_init]
