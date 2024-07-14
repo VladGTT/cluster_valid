@@ -1,69 +1,19 @@
-use numpy::ndarray::{ArrayD, ArrayViewD, ArrayViewMutD};
-use numpy::{IntoPyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
-use pyo3::{pymodule, types::PyModule, Bound, PyResult, Python};
-
-// #[pymodule]
-// fn rust_ext<'py>(_py: Python<'py>, m: &Bound<'py, PyModule>) -> PyResult<()> {
-//     fn silhouette_index_calc(x: ArrayViewD<'_, f64>, y: ArrayViewD<'_, f64>) -> f64 {
-//         0.8
-//     }
-//
-//     #[pyfn(m)]
-//     #[pyo3(name = "silhouette_score")]
-//     fn wrapper<'py>(
-//         x: PyReadonlyArrayDyn<'py, f64>,
-//         y: PyReadonlyArrayDyn<'py, f64>,
-//     ) -> Bound<'py, f64> {
-//         let x = x.as_array();
-//         let y = y.as_array();
-//         silhouette_index_calc(x, y)
-//     }
-//
-//     // fn axpy(a: f64, x: ArrayViewD<'_, f64>, y: ArrayViewD<'_, f64>) -> ArrayD<f64> {
-//     //     a * &x + &y
-//     // }
-//     //
-//     // #[pyfn(m)]
-//     // #[pyo3(name = "axpy")]
-//     // fn axpy_py<'py>(
-//     //     py: Python<'py>,
-//     //     a: f64,
-//     //     x: PyReadonlyArrayDyn<'py, f64>,
-//     //     y: PyReadonlyArrayDyn<'py, f64>,
-//     // ) -> Bound<'py, PyArrayDyn<f64>> {
-//     //     let x = x.as_array();
-//     //     let y = y.as_array();
-//     //     let z = axpy(a, x, y);
-//     //     z.into_pyarray_bound(py)
-//     // }
-//
-//     Ok(())
-//
-// }
-
+use pyo3::prelude::*;
 #[pymodule]
 mod rust_ext {
 
-    use std::{
-        collections::{HashMap, HashSet},
-        sync::{Arc, Mutex},
-    };
+    use std::{collections::HashMap, sync::Mutex};
 
     use ndarray::{
-        parallel::prelude::{
-            IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
-            ParallelIterator,
-        },
-        ArcArray2, Array1, ArrayBase, ArrayView, ArrayView1, ArrayView2, Axis, NdProducer,
-        ShapeBuilder, ViewRepr,
+        parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
+        Array1, ArrayView1, ArrayView2, Axis,
     };
     use numpy::{
         ndarray::{Array2, Zip},
         npyffi::npy_int32,
+        PyReadonlyArrayDyn,
     };
     use pyo3::{exceptions::PyValueError, prelude::*};
-
-    use super::*;
 
     #[pyfunction]
     fn silhouette_score<'py>(
@@ -75,7 +25,7 @@ mod rust_ext {
 
         let shape = match (x.shape().get(0), x.shape().get(1)) {
             (Some(val_x), Some(val_y)) => (*val_x, *val_y),
-            _ => return Err(PyValueError::new_err(format!("x is not 2 dimentional"))),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
         };
 
         let x = x
@@ -137,9 +87,7 @@ mod rust_ext {
 
     fn silhouette_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
         let groups = group(x, y)?;
-        // println!("Groups\n {:?}", groups);
         let centers = calc_clusters_centers(&groups);
-        // println!("Centers\n {:?}", centers);
         let scores = Zip::from(x.rows())
             .and(y)
             .into_par_iter()
@@ -149,39 +97,37 @@ mod rust_ext {
                     .filter(|val| *val.0 != *y)
                     .map(|(i, row)| (i, find_euclidean_distance(&x, &row.view())))
                     .min_by(|(_, x), (_, y)| x.total_cmp(y))
-                    .unwrap();
+                    .ok_or("Cant find closest cluster".to_string())?;
 
-                let nearest_cluster = groups.get(&min.0).unwrap();
+                let nearest_cluster = groups
+                    .get(min.0)
+                    .ok_or("Cant get a lock on nearest cluster")?;
                 let nearest_cluster_distances = nearest_cluster
                     .axis_iter(Axis(0))
                     .into_par_iter()
                     .map(|row| find_euclidean_distance(&x, &row))
                     .collect::<Vec<f64>>();
 
-                let a: f64 = nearest_cluster_distances.iter().sum::<f64>()
-                    / nearest_cluster_distances.iter().len() as f64;
+                let a: f64 = nearest_cluster_distances.par_iter().sum::<f64>()
+                    / nearest_cluster_distances.len() as f64;
 
-                let point_cluster = groups.get(y).unwrap();
+                let point_cluster = groups
+                    .get(y)
+                    .ok_or("Cant get a lock on point own cluster")?;
                 let point_cluster_distances = point_cluster
                     .axis_iter(Axis(0))
                     .into_par_iter()
                     .map(|row| find_euclidean_distance(&x, &row))
                     .collect::<Vec<f64>>();
 
-                let b: f64 = point_cluster_distances.iter().sum::<f64>()
+                let b: f64 = point_cluster_distances.par_iter().sum::<f64>()
                     / point_cluster_distances.len() as f64;
-                let silhouette = (a - b) / f64::max(a, b);
 
-                // println!(
-                //     "Point:\n {:?}\n\n Nearest cluster:\n {:?}\n\n a:\n{}",
-                //     x, min, a
-                // );
-                silhouette
+                Ok((a - b) / f64::max(a, b))
             })
-            .collect::<Vec<f64>>();
+            .collect::<Result<Vec<f64>, String>>()?;
 
-        // println!("{:?}", scores);
-        let res = scores.iter().sum::<f64>() / scores.len() as f64;
+        let res = scores.par_iter().sum::<f64>() / scores.len() as f64;
         Ok(res)
     }
 
