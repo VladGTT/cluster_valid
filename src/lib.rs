@@ -119,10 +119,14 @@ mod rust_ext {
     }
 
     fn calc_clusters_centers(groups: &HashMap<i32, Array2<f64>>) -> HashMap<i32, Array1<f64>> {
-        let mut retval: HashMap<i32, Array1<f64>> = HashMap::new();
-        for (index, val) in groups.iter() {
-            retval.insert(*index, val.sum_axis(Axis(0)));
-        }
+        let retval = groups
+            .into_par_iter()
+            .map(|(i, val)| {
+                let center = val.sum_axis(Axis(0));
+                let len = val.shape()[0] as f64;
+                (*i, center / len)
+            })
+            .collect::<HashMap<i32, Array1<f64>>>();
         retval
     }
 
@@ -133,38 +137,50 @@ mod rust_ext {
 
     fn silhouette_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
         let groups = group(x, y)?;
+        // println!("Groups\n {:?}", groups);
         let centers = calc_clusters_centers(&groups);
+        // println!("Centers\n {:?}", centers);
         let scores = Zip::from(x.rows())
             .and(y)
             .into_par_iter()
             .map(|(x, y)| {
                 let min = (&centers)
                     .into_par_iter()
+                    .filter(|val| *val.0 != *y)
                     .map(|(i, row)| (i, find_euclidean_distance(&x, &row.view())))
                     .min_by(|(_, x), (_, y)| x.total_cmp(y))
                     .unwrap();
 
                 let nearest_cluster = groups.get(&min.0).unwrap();
-                nearest_cluster
+                let nearest_cluster_distances = nearest_cluster
                     .axis_iter(Axis(0))
                     .into_par_iter()
                     .map(|row| find_euclidean_distance(&x, &row))
                     .collect::<Vec<f64>>();
 
-                let a: f64 = nearest_cluster.iter().sum::<f64>() / nearest_cluster.len() as f64;
+                let a: f64 = nearest_cluster_distances.iter().sum::<f64>()
+                    / nearest_cluster_distances.iter().len() as f64;
 
                 let point_cluster = groups.get(y).unwrap();
-                point_cluster
+                let point_cluster_distances = point_cluster
                     .axis_iter(Axis(0))
                     .into_par_iter()
                     .map(|row| find_euclidean_distance(&x, &row))
                     .collect::<Vec<f64>>();
 
-                let b: f64 = point_cluster.iter().sum::<f64>() / point_cluster.len() as f64;
-                (a - b) / f64::max(a, b)
+                let b: f64 = point_cluster_distances.iter().sum::<f64>()
+                    / point_cluster_distances.len() as f64;
+                let silhouette = (a - b) / f64::max(a, b);
+
+                // println!(
+                //     "Point:\n {:?}\n\n Nearest cluster:\n {:?}\n\n a:\n{}",
+                //     x, min, a
+                // );
+                silhouette
             })
             .collect::<Vec<f64>>();
 
+        // println!("{:?}", scores);
         let res = scores.iter().sum::<f64>() / scores.len() as f64;
         Ok(res)
     }
