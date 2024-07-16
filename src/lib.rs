@@ -121,7 +121,7 @@ mod rust_ext {
                     .collect::<Vec<f64>>();
 
                 let b: f64 = point_cluster_distances.par_iter().sum::<f64>()
-                    / point_cluster_distances.len() as f64;
+                    / (point_cluster_distances.len() - 1) as f64;
 
                 Ok((a - b) / f64::max(a, b))
             })
