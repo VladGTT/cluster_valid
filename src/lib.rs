@@ -23,7 +23,7 @@ mod rust_ext {
         let x = x.as_array();
         let y = y.as_array();
 
-        let shape = match (x.shape().get(0), x.shape().get(1)) {
+        let shape = match (x.shape().first(), x.shape().get(1)) {
             (Some(val_x), Some(val_y)) => (*val_x, *val_y),
             _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
         };
@@ -37,7 +37,7 @@ mod rust_ext {
             .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
 
         let result = silhouette_index_calc(x, y);
-        result.map_err(|msg| PyValueError::new_err(msg))
+        result.map_err(PyValueError::new_err)
     }
 
     fn group(
@@ -45,7 +45,7 @@ mod rust_ext {
         y: ArrayView1<i32>,
     ) -> Result<HashMap<i32, Array2<f64>>, String> {
         let clusters: Mutex<HashMap<i32, Array2<f64>>> = Mutex::new(HashMap::new());
-        let _ = Zip::from(x.rows())
+        Zip::from(x.rows())
             .and(y)
             .into_par_iter()
             .map(|(x, y)| {
