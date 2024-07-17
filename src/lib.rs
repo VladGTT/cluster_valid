@@ -131,9 +131,46 @@ mod rust_ext {
         Ok(res)
     }
 
+    #[pyfunction]
+    fn davies_bouldin_score<'py>(
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    ) -> PyResult<f64> {
+        let x = x.as_array();
+        let y = y.as_array();
+
+        let shape = match (x.shape().first(), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let result = davies_bouldin_index_calc(x, y);
+        result.map_err(PyValueError::new_err)
+    }
+
+    fn davies_bouldin_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        let groups = group(x, y)?;
+        let centers = calc_clusters_centers(&groups);
+        
+        groups.into_par_iter().map(|(i,val)|{
+            
+        })
+
+        Ok(res)
+    }
+
     #[pymodule_init]
     fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add("silhouette_score", m.getattr("silhouette_score")?)?;
+        m.add("davies_bouldin_score", m.getattr("davies_bouldin_score")?)?;
         Ok(())
     }
 }
