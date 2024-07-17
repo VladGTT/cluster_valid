@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 #[pymodule]
 mod rust_ext {
 
-    use std::{collections::HashMap, sync::Mutex};
+    use std::{collections::HashMap, iter::Zip as ZipStd, sync::Mutex};
 
     use ndarray::{
         parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
@@ -159,10 +159,42 @@ mod rust_ext {
     fn davies_bouldin_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
         let groups = group(x, y)?;
         let centers = calc_clusters_centers(&groups);
-        
-        groups.into_par_iter().map(|(i,val)|{
-            
-        })
+
+        let variances = (&groups)
+            .into_par_iter()
+            .map(|(i, val)| {
+                let center = centers.get(i).ok_or("Can't get centroid")?;
+                let dists_to_center = val
+                    .axis_iter(Axis(0))
+                    .into_par_iter()
+                    .map(|row| find_euclidean_distance(&row, &center.view()))
+                    .collect::<Vec<f64>>();
+
+                let mean =
+                    (&dists_to_center).into_par_iter().sum::<f64>() / dists_to_center.len() as f64;
+                Ok((*i, mean))
+            })
+            .collect::<Result<HashMap<i32, f64>, String>>()?;
+
+        let mut temp: Vec<f64> = Vec::default();
+        let n_clusters = groups.keys().len();
+        for i in 0..n_clusters {
+            for j in 0..n_clusters {
+                if i != j {
+                    let value = (variances[&(i as i32)] + variances[&(j as i32)])
+                        / find_euclidean_distance(
+                            &centers[&(i as i32)].view(),
+                            &centers[&(j as i32)].view(),
+                        );
+                    temp.push(value);
+                }
+            }
+        }
+        let res = temp
+            .into_par_iter()
+            .max_by(|x, y| x.total_cmp(y))
+            .ok_or("Can't find max element".to_string())?
+            / n_clusters as f64;
 
         Ok(res)
     }
