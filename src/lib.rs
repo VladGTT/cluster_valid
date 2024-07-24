@@ -2,9 +2,13 @@ use pyo3::prelude::*;
 #[pymodule]
 mod rust_ext {
 
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        collections::{HashMap, HashSet},
+        usize,
+    };
 
     use ndarray::{
+        linalg::Dot,
         parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
         Array1, ArrayView1, ArrayView2, Axis,
     };
@@ -19,6 +23,10 @@ mod rust_ext {
     fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add("silhouette_score", m.getattr("silhouette_score")?)?;
         m.add("davies_bouldin_score", m.getattr("davies_bouldin_score")?)?;
+        m.add(
+            "calinski_harabasz_score",
+            m.getattr("calinski_harabasz_score")?,
+        )?;
         Ok(())
     }
 
@@ -235,6 +243,87 @@ mod rust_ext {
             .ok_or("Can't find max element".to_string())?
             / n_clusters as f64;
 
+        Ok(res)
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    #[pyfunction]
+    fn calinski_harabasz_score<'py>(
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    ) -> PyResult<f64> {
+        let x = x.as_array();
+        let y = y.as_array();
+
+        let shape = match (x.shape().first(), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let result = calinski_harabasz_index_calc(x, y);
+        result.map_err(PyValueError::new_err)
+    }
+
+    fn calinski_harabasz_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        let number_of_objects = x.axis_iter(Axis(0)).len() as f64;
+        let data_centroid = x.sum_axis(Axis(0)) / number_of_objects;
+        let clusters = group(x, y)?;
+        let number_of_objects_in_clusters = (&clusters)
+            .into_par_iter()
+            .map(|(i, val)| (*i, val.axis_iter(Axis(0)).len()))
+            .collect::<HashMap<i32, usize>>();
+        let clusters_centroids = calc_clusters_centers(&clusters);
+        let number_of_clusters = clusters.keys().len() as f64;
+
+        let between_group_dispersion = clusters_centroids
+            .iter()
+            .zip(number_of_objects_in_clusters)
+            .filter(|((i, _), (j, _))| **i == *j)
+            .map(|((_, c), (_, n))| {
+                let dif = c - (&data_centroid);
+                (n as f64) * dif.dot(&dif)
+            })
+            .sum::<f64>();
+
+        let within_group_dispersion = clusters
+            .into_par_iter()
+            .map(|(i, val)| {
+                let center = &clusters_centroids[&i].view();
+                let sum = val
+                    .axis_iter(Axis(0))
+                    .map(|row| {
+                        let dif = &row - center;
+                        dif.dot(&dif)
+                    })
+                    .sum::<f64>();
+                sum
+            })
+            .sum::<f64>();
+
+        let res = (between_group_dispersion / (number_of_clusters - 1.0))
+            / (within_group_dispersion / (number_of_objects - number_of_clusters));
         Ok(res)
     }
 }
