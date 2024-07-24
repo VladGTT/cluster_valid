@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 #[pymodule]
 mod rust_ext {
 
-    use std::{collections::HashMap, iter::Zip as ZipStd, sync::Mutex};
+    use std::collections::{HashMap, HashSet};
 
     use ndarray::{
         parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
@@ -14,6 +14,75 @@ mod rust_ext {
         PyReadonlyArrayDyn,
     };
     use pyo3::{exceptions::PyValueError, prelude::*};
+
+    #[pymodule_init]
+    fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        m.add("silhouette_score", m.getattr("silhouette_score")?)?;
+        m.add("davies_bouldin_score", m.getattr("davies_bouldin_score")?)?;
+        Ok(())
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    fn group(
+        x: ArrayView2<'_, f64>,
+        y: ArrayView1<i32>,
+    ) -> Result<HashMap<i32, Array2<f64>>, String> {
+        let clusters = y.into_par_iter().map(|i| *i).collect::<HashSet<i32>>();
+
+        clusters
+            .into_par_iter()
+            .map(|iter| {
+                let vec = Zip::from(y)
+                    .and(x.rows())
+                    .into_par_iter()
+                    .filter(|(i, _)| **i == iter)
+                    .map(|(_, val)| val.to_owned())
+                    .collect::<Vec<Array1<f64>>>();
+
+                let shape = (vec.len(), vec[0].dim());
+                let vec: Vec<f64> = vec.par_iter().flatten().map(|i| *i).collect();
+                let matrix: Array2<f64> = Array2::from_shape_vec(shape, vec)
+                    .map_err(|_| "Cant create cluster".to_string())?;
+
+                Ok((iter, matrix))
+            })
+            .collect::<Result<HashMap<i32, Array2<f64>>, String>>()
+    }
+
+    fn calc_clusters_centers(groups: &HashMap<i32, Array2<f64>>) -> HashMap<i32, Array1<f64>> {
+        let retval = groups
+            .into_par_iter()
+            .map(|(i, val)| {
+                let center = val.sum_axis(Axis(0));
+                let len = val.shape()[0] as f64;
+                (*i, center / len)
+            })
+            .collect::<HashMap<i32, Array1<f64>>>();
+        retval
+    }
+
+    fn find_euclidean_distance(point1: &ArrayView1<f64>, point2: &ArrayView1<f64>) -> f64 {
+        let sub_res = point2 - point1;
+        f64::sqrt(sub_res.dot(&sub_res))
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
 
     #[pyfunction]
     fn silhouette_score<'py>(
@@ -38,51 +107,6 @@ mod rust_ext {
 
         let result = silhouette_index_calc(x, y);
         result.map_err(PyValueError::new_err)
-    }
-
-    fn group(
-        x: ArrayView2<'_, f64>,
-        y: ArrayView1<i32>,
-    ) -> Result<HashMap<i32, Array2<f64>>, String> {
-        let clusters: Mutex<HashMap<i32, Array2<f64>>> = Mutex::new(HashMap::new());
-        Zip::from(x.rows())
-            .and(y)
-            .into_par_iter()
-            .map(|(x, y)| {
-                let mut clusters = clusters
-                    .lock()
-                    .map_err(|_| "Cant get a lock on hashmap".to_string())?;
-                if !clusters.contains_key(y) {
-                    clusters.insert(*y, Array2::default((0, x.shape()[0])));
-                }
-                let group = clusters
-                    .get_mut(y)
-                    .ok_or("Can`t get group from hashmap".to_string())?;
-                group
-                    .push(Axis(0), x)
-                    .map_err(|_| "Couldn`t add point to cluster".to_string())?;
-                Ok(())
-            })
-            .collect::<Result<(), String>>()?;
-        let res = clusters.into_inner().map_err(|msg| format!("{msg}"))?;
-        Ok(res)
-    }
-
-    fn calc_clusters_centers(groups: &HashMap<i32, Array2<f64>>) -> HashMap<i32, Array1<f64>> {
-        let retval = groups
-            .into_par_iter()
-            .map(|(i, val)| {
-                let center = val.sum_axis(Axis(0));
-                let len = val.shape()[0] as f64;
-                (*i, center / len)
-            })
-            .collect::<HashMap<i32, Array1<f64>>>();
-        retval
-    }
-
-    fn find_euclidean_distance(point1: &ArrayView1<f64>, point2: &ArrayView1<f64>) -> f64 {
-        let sub_res = point2 - point1;
-        f64::sqrt(sub_res.dot(&sub_res))
     }
 
     fn silhouette_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
@@ -130,6 +154,21 @@ mod rust_ext {
         let res = scores.par_iter().sum::<f64>() / scores.len() as f64;
         Ok(res)
     }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
 
     #[pyfunction]
     fn davies_bouldin_score<'py>(
@@ -197,12 +236,5 @@ mod rust_ext {
             / n_clusters as f64;
 
         Ok(res)
-    }
-
-    #[pymodule_init]
-    fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        m.add("silhouette_score", m.getattr("silhouette_score")?)?;
-        m.add("davies_bouldin_score", m.getattr("davies_bouldin_score")?)?;
-        Ok(())
     }
 }
