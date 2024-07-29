@@ -294,15 +294,17 @@ mod rust_ext {
             .into_par_iter()
             .map(|(i, val)| (*i, val.axis_iter(Axis(0)).len()))
             .collect::<HashMap<i32, usize>>();
+
         let clusters_centroids = calc_clusters_centers(&clusters);
+
         let number_of_clusters = clusters.keys().len() as f64;
 
-        let between_group_dispersion = clusters_centroids
-            .iter()
-            .zip(number_of_objects_in_clusters)
-            .filter(|((i, _), (j, _))| **i == *j)
-            .map(|((_, c), (_, n))| {
-                let dif = c - (&data_centroid);
+        let between_group_dispersion = (&clusters_centroids)
+            .into_par_iter()
+            .map(|(i, c)| {
+                let dif = c - &data_centroid;
+                let n = number_of_objects_in_clusters[&i];
+
                 (n as f64) * dif.dot(&dif)
             })
             .sum::<f64>();
@@ -324,6 +326,7 @@ mod rust_ext {
 
         let res = (between_group_dispersion / (number_of_clusters - 1.0))
             / (within_group_dispersion / (number_of_objects - number_of_clusters));
+
         Ok(res)
     }
 }
