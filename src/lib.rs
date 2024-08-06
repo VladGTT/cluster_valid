@@ -4,7 +4,7 @@ mod rust_ext {
 
     use std::{
         collections::{HashMap, HashSet},
-        usize,
+        f64, usize,
     };
 
     use ndarray::{
@@ -27,6 +27,7 @@ mod rust_ext {
             "calinski_harabasz_score",
             m.getattr("calinski_harabasz_score")?,
         )?;
+        m.add("c_index", m.getattr("c_index")?)?;
         Ok(())
     }
 
@@ -207,36 +208,49 @@ mod rust_ext {
         let groups = group(x, y)?;
         let centers = calc_clusters_centers(&groups);
 
-        let variances = (&groups)
+        let stds = (&groups)
             .into_par_iter()
             .map(|(i, val)| {
-                let center = centers.get(i).ok_or("Can't get centroid")?;
+                let center = centers[i].view();
                 let dists_to_center = val
                     .axis_iter(Axis(0))
-                    .into_par_iter()
-                    .map(|row| find_euclidean_distance(&row, &center.view()))
+                    .map(|row| find_euclidean_distance(&row, &center))
                     .collect::<Vec<f64>>();
 
-                let mean =
-                    (&dists_to_center).into_par_iter().sum::<f64>() / dists_to_center.len() as f64;
+                // println!("Dists to center {dists_to_center:?}");
+
+                let mean = dists_to_center.iter().sum::<f64>() / dists_to_center.len() as f64;
+
+                // println!(
+                //     "Center {i}: {} Mean: {} len: {}\n\n",
+                //     center,
+                //     mean,
+                //     dists_to_center.len() as f64
+                // );
+
                 Ok((*i, mean))
             })
             .collect::<Result<HashMap<i32, f64>, String>>()?;
 
+        // println!("stds: {:?}", stds);
+
         let mut temp: Vec<f64> = Vec::default();
         let n_clusters = groups.keys().len();
-        for i in 0..n_clusters {
-            for j in 0..n_clusters {
+
+        // println!("n_clusters: {}", n_clusters);
+
+        for i in 0..n_clusters as i32 {
+            for j in 0..n_clusters as i32 {
                 if i != j {
-                    let value = (variances[&(i as i32)] + variances[&(j as i32)])
-                        / find_euclidean_distance(
-                            &centers[&(i as i32)].view(),
-                            &centers[&(j as i32)].view(),
-                        );
+                    let value = (stds[&i] + stds[&j])
+                        / find_euclidean_distance(&centers[&i].view(), &centers[&j].view());
                     temp.push(value);
                 }
             }
         }
+
+        // println!("temp: {:?}", temp);
+
         let res = temp
             .into_par_iter()
             .max_by(|x, y| x.total_cmp(y))
@@ -328,5 +342,86 @@ mod rust_ext {
             / (within_group_dispersion / (number_of_objects - number_of_clusters));
 
         Ok(res)
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    #[pyfunction]
+    fn c_index<'py>(
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    ) -> PyResult<f64> {
+        let x = x.as_array();
+        let y = y.as_array();
+
+        let shape = match (x.shape().first(), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let result = c_index_calc(x, y);
+        result.map_err(PyValueError::new_err)
+    }
+
+    fn c_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        let clusters = group(x, y)?;
+        let number_of_pairs_in_clusters = (&clusters)
+            .into_par_iter()
+            .map(|(_, val)| {
+                let n = val.axis_iter(Axis(0)).len() as f64;
+                n * (n - 1.0) / 2.0
+            })
+            .sum::<f64>() as usize;
+
+        let mut distances: Vec<f64> = Vec::default();
+        for i in x.axis_iter(Axis(0)) {
+            for j in x.axis_iter(Axis(0)) {
+                distances.push(find_euclidean_distance(&i, &j));
+            }
+        }
+        distances.sort_by(|a, b| a.total_cmp(b));
+
+        let mut sum_of_minimum_distances = 0.0;
+        let mut sum_of_maximum_distances = 0.0;
+        for i in 0..number_of_pairs_in_clusters {
+            sum_of_minimum_distances += distances[i];
+            sum_of_maximum_distances += distances[(distances.len() - 1) - i];
+        }
+
+        let sum_of_intercluster_distances = (&clusters)
+            .into_par_iter()
+            .map(|(_, val)| {
+                let mut distances: Vec<f64> = Vec::default();
+                for i in val.axis_iter(Axis(0)) {
+                    for j in val.axis_iter(Axis(0)) {
+                        distances.push(find_euclidean_distance(&i, &j));
+                    }
+                }
+                distances.iter().sum::<f64>()
+            })
+            .sum::<f64>();
+        Ok((sum_of_intercluster_distances - sum_of_minimum_distances)
+            / (sum_of_maximum_distances - sum_of_minimum_distances))
     }
 }
