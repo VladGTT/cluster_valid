@@ -1,6 +1,6 @@
 library(MASS)
 library(cluster)
-library(NbClust)
+library(clusterCrit)
 
 set.seed(42)
 data <- c(-7.726420909219675,
@@ -205,11 +205,9 @@ data <- c(-7.726420909219675,
   8.705073752347108)
 
 matrix <- matrix(data, nrow=100,ncol=2,byrow = TRUE)
-plot(matrix, asp = 1, xlab = '', ylab = '', main = 'Data for clustering')
-labels <- kmeans(matrix, 3, iter.max = 50, nstart = 5)$cluster
-plot(matrix, col = labels, asp = 1, xlab = '', ylab = '', main = 'K-means clustered data')
 
-clust <- NbClust(data = matrix, diss = NULL, distance = "euclidean", min.nc = 3, max.nc = 3, 
-        method = "complete", index = "db", alphaBeale = 0)
-print(clust$All.index)
-plot(matrix, col = clust$Best.partition, asp = 1, xlab = '', ylab = '', main = 'K-means clustered data')
+labels <- c(1, 2, 0, 2, 1, 2, 0, 2, 2, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 2, 1, 1, 1, 1, 2, 2, 1, 0, 0, 0, 0, 2, 2, 1, 0, 2, 0, 0, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 0, 2, 0, 1, 2, 1, 2, 1, 1, 2, 1, 2, 2, 2, 1, 1, 0, 2, 1, 2, 1, 2, 2, 0, 2, 0, 1, 0, 0, 0, 2, 0, 2, 2, 2, 0, 2, 0, 0, 0, 2, 1, 0)
+labels <- as.integer(labels)
+
+clust <- intCriteria(matrix,labels,c("C_index","Davies_Bouldin","Silhouette"))
+clust

@@ -385,7 +385,10 @@ mod rust_ext {
     }
 
     fn c_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        //transforming dataset into hashmap
         let clusters = group(x, y)?;
+
+        //calculating Nw  -- total number of pairs of observations belonging to the same cluster
         let number_of_pairs_in_clusters = (&clusters)
             .into_par_iter()
             .map(|(_, val)| {
@@ -394,14 +397,21 @@ mod rust_ext {
             })
             .sum::<f64>() as usize;
 
+        //calculating distances beetween all possible pars of points in dataset
         let mut distances: Vec<f64> = Vec::default();
-        for i in x.axis_iter(Axis(0)) {
-            for j in x.axis_iter(Axis(0)) {
-                distances.push(find_euclidean_distance(&i, &j));
+
+        for (i, row1) in x.axis_iter(Axis(0)).enumerate() {
+            for (j, row2) in x.axis_iter(Axis(0)).enumerate() {
+                if i < j {
+                    distances.push(find_euclidean_distance(&row1, &row2));
+                }
             }
         }
-        distances.sort_by(|a, b| a.total_cmp(b));
 
+        //sorting by min
+        distances.sort_unstable_by(|a, b| a.total_cmp(b));
+
+        //calculating sum of Nw minimum and maximum distances
         let mut sum_of_minimum_distances = 0.0;
         let mut sum_of_maximum_distances = 0.0;
         for i in 0..number_of_pairs_in_clusters {
@@ -409,19 +419,24 @@ mod rust_ext {
             sum_of_maximum_distances += distances[(distances.len() - 1) - i];
         }
 
-        let sum_of_intercluster_distances = (&clusters)
+        //calculating Sw -- sum of the within-cluster distances
+        let sum_of_withincluster_distances = (&clusters)
             .into_par_iter()
             .map(|(_, val)| {
                 let mut distances: Vec<f64> = Vec::default();
-                for i in val.axis_iter(Axis(0)) {
-                    for j in val.axis_iter(Axis(0)) {
-                        distances.push(find_euclidean_distance(&i, &j));
+                for (i, row1) in val.axis_iter(Axis(0)).enumerate() {
+                    for (j, row2) in val.axis_iter(Axis(0)).enumerate() {
+                        if i < j {
+                            distances.push(find_euclidean_distance(&row1, &row2));
+                        }
                     }
                 }
                 distances.iter().sum::<f64>()
             })
             .sum::<f64>();
-        Ok((sum_of_intercluster_distances - sum_of_minimum_distances)
+
+        //calculating c_index value
+        Ok((sum_of_withincluster_distances - sum_of_minimum_distances)
             / (sum_of_maximum_distances - sum_of_minimum_distances))
     }
 }
