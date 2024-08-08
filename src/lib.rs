@@ -4,7 +4,9 @@ mod rust_ext {
 
     use std::{
         collections::{HashMap, HashSet},
-        f64, usize,
+        f64,
+        iter::zip,
+        usize,
     };
 
     use ndarray::{
@@ -28,6 +30,7 @@ mod rust_ext {
             m.getattr("calinski_harabasz_score")?,
         )?;
         m.add("c_index", m.getattr("c_index")?)?;
+        m.add("gamma_index", m.getattr("gamma_index")?)?;
         Ok(())
     }
 
@@ -222,6 +225,9 @@ mod rust_ext {
                 let mean = dists_to_center.iter().sum::<f64>() / dists_to_center.len() as f64;
 
                 // println!(
+                //grouping data into clusters
+                //let clusters = group(x, y);
+
                 //     "Center {i}: {} Mean: {} len: {}\n\n",
                 //     center,
                 //     mean,
@@ -438,5 +444,79 @@ mod rust_ext {
         //calculating c_index value
         Ok((sum_of_withincluster_distances - sum_of_minimum_distances)
             / (sum_of_maximum_distances - sum_of_minimum_distances))
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    #[pyfunction]
+    fn gamma_index<'py>(
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    ) -> PyResult<f64> {
+        let x = x.as_array();
+        let y = y.as_array();
+
+        let shape = match (x.shape().first(), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let result = gamma_index_calc(x, y);
+        result.map_err(PyValueError::new_err)
+    }
+
+    fn gamma_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        let mut distances: Vec<f64> = Vec::default();
+        let mut pairs_in_the_same_cluster: Vec<i8> = Vec::default();
+
+        //calculating distances beetween pair of points and does they belong to the same cluster
+        for (i, (row1, cluster1)) in x.axis_iter(Axis(0)).zip(y).enumerate() {
+            for (j, (row2, cluster2)) in x.axis_iter(Axis(0)).zip(y).enumerate() {
+                if i < j {
+                    pairs_in_the_same_cluster.push((cluster1 != cluster2) as i8); // the same cluster = 0, different = 1
+                    distances.push(find_euclidean_distance(&row1, &row2));
+                }
+            }
+        }
+        let (mut s_plus, mut s_minus) = (0.0, 0.0);
+
+        // finding s_plus which represents the number of times a distance between two points
+        // which belong to the same cluster is strictly smaller than the distance between two points not belonging to the same cluster
+        // and s_minus which represents the number of times distance between two points lying in the same cluster  is strictly greater than a distance between two points not
+        //belonging to the same cluster
+
+        for (i, (d1, b1)) in zip(&distances, &pairs_in_the_same_cluster).enumerate() {
+            for (j, (d2, b2)) in zip(&distances, &pairs_in_the_same_cluster).enumerate() {
+                if i < j && (*b1 == 0 && *b2 == 1) {
+                    if d1 < d2 {
+                        s_plus += 1.0;
+                    }
+                    if d1 > d2 {
+                        s_minus += 1.0;
+                    }
+                }
+            }
+        }
+        Ok((s_plus - s_minus) / (s_plus + s_minus))
     }
 }
