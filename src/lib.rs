@@ -31,6 +31,7 @@ mod rust_ext {
         )?;
         m.add("c_index", m.getattr("c_index")?)?;
         m.add("gamma_index", m.getattr("gamma_index")?)?;
+        m.add("ball_hall_index", m.getattr("ball_hall_index")?)?;
         Ok(())
     }
 
@@ -518,5 +519,62 @@ mod rust_ext {
             }
         }
         Ok((s_plus - s_minus) / (s_plus + s_minus))
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    #[pyfunction]
+    fn ball_hall_index<'py>(
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    ) -> PyResult<f64> {
+        let x = x.as_array();
+        let y = y.as_array();
+
+        let shape = match (x.shape().first(), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let result = ball_hall_index_calc(x, y);
+        result.map_err(PyValueError::new_err)
+    }
+
+    fn ball_hall_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        let clusters = group(x, y)?;
+        let number_of_cluster = clusters.keys().len();
+        let clusters_centroids = calc_clusters_centers(&clusters);
+        let std = clusters
+            .into_par_iter()
+            .map(|(i, val)| {
+                let center = &clusters_centroids[&i].view();
+                val.axis_iter(Axis(0))
+                    .map(|row| {
+                        let dif = &row - center;
+                        dif.dot(&dif)
+                    })
+                    .sum::<f64>()
+            })
+            .sum::<f64>();
+        Ok(std / number_of_cluster as f64)
     }
 }
