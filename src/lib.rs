@@ -2,15 +2,13 @@ use pyo3::prelude::*;
 #[pymodule]
 mod rust_ext {
 
+    use core::f64;
     use std::{
         collections::{HashMap, HashSet},
-        f64,
         iter::zip,
-        usize,
     };
 
     use ndarray::{
-        linalg::Dot,
         parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
         Array1, ArrayView1, ArrayView2, Axis,
     };
@@ -32,6 +30,8 @@ mod rust_ext {
         m.add("c_index", m.getattr("c_index")?)?;
         m.add("gamma_index", m.getattr("gamma_index")?)?;
         m.add("ball_hall_index", m.getattr("ball_hall_index")?)?;
+        m.add("tau_index", m.getattr("tau_index")?)?;
+        m.add("dunn_index", m.getattr("dunn_index")?)?;
         Ok(())
     }
 
@@ -576,5 +576,265 @@ mod rust_ext {
             })
             .sum::<f64>();
         Ok(std / number_of_cluster as f64)
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    #[pyfunction]
+    fn tau_index<'py>(
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    ) -> PyResult<f64> {
+        let x = x.as_array();
+        let y = y.as_array();
+
+        let shape = match (x.shape().first(), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let result = tau_index_calc(x, y);
+        result.map_err(PyValueError::new_err)
+    }
+
+    fn tau_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        let mut distances: Vec<f64> = Vec::default();
+        let mut pairs_in_the_same_cluster: Vec<i8> = Vec::default();
+
+        //calculating distances beetween pair of points and does they belong to the same cluster
+        for (i, (row1, cluster1)) in x.axis_iter(Axis(0)).zip(y).enumerate() {
+            for (j, (row2, cluster2)) in x.axis_iter(Axis(0)).zip(y).enumerate() {
+                if i < j {
+                    pairs_in_the_same_cluster.push((cluster1 != cluster2) as i8); // the same cluster = 0, different = 1
+                    distances.push(find_euclidean_distance(&row1, &row2));
+                }
+            }
+        }
+
+        let number_of_pairs_in_the_same_cluster = pairs_in_the_same_cluster
+            .iter()
+            .filter(|i| **i == 0)
+            .count();
+
+        let total_number_of_pairs = x.len() * (x.len() - 1) / 2;
+
+        let number_of_pairs_in_different_clusters =
+            total_number_of_pairs - number_of_pairs_in_the_same_cluster;
+
+        let (mut s_plus, mut s_minus) = (0.0, 0.0);
+
+        // finding s_plus which represents the number of times a distance between two points
+        // which belong to the same cluster is strictly smaller than the distance between two points not belonging to the same cluster
+        // and s_minus which represents the number of times distance between two points lying in the same cluster  is strictly greater than a distance between two points not
+        //belonging to the same cluster
+
+        let mut ties: HashMap<u64, i32> = HashMap::default();
+
+        for (i, (d1, b1)) in zip(&distances, &pairs_in_the_same_cluster).enumerate() {
+            for (j, (d2, b2)) in zip(&distances, &pairs_in_the_same_cluster).enumerate() {
+                if i < j && (*b1 == 0 && *b2 == 1) {
+                    if d1 < d2 {
+                        s_plus += 1.0;
+                    }
+                    if d1 > d2 {
+                        s_minus += 1.0;
+                    }
+                    if d1 == d2 {
+                        ties.entry(d1.to_bits())
+                            .and_modify(|val| *val += 1)
+                            .or_insert(0);
+                    }
+                }
+            }
+        }
+
+        let v0 = (total_number_of_pairs * (total_number_of_pairs - 1)) as f64 / 2.0;
+        let v1 = ties
+            .iter()
+            .map(|(_, c)| (c * (c - 1)) as f64 / 2.0)
+            .sum::<f64>();
+        let v2 = (number_of_pairs_in_different_clusters
+            * (number_of_pairs_in_different_clusters - 1)) as f64
+            / 2.0
+            + (number_of_pairs_in_the_same_cluster * (number_of_pairs_in_the_same_cluster - 1))
+                as f64
+                / 2.0;
+
+        Ok((s_plus - s_minus) / f64::sqrt((v0 - v1) * (v0 - v2)))
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    #[pyfunction]
+    fn dunn_index<'py>(
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    ) -> PyResult<f64> {
+        let x = x.as_array();
+        let y = y.as_array();
+
+        let shape = match (x.shape().first(), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let result = dunn_index_calc(x, y);
+        result.map_err(PyValueError::new_err)
+    }
+
+    fn dunn_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+        let mut intercluster_distances: Vec<f64> = Vec::default();
+        let mut intracluster_distances: Vec<f64> = Vec::default();
+
+        for (i, (row1, cluster1)) in x.axis_iter(Axis(0)).zip(y).enumerate() {
+            for (j, (row2, cluster2)) in x.axis_iter(Axis(0)).zip(y).enumerate() {
+                if i < j {
+                    if cluster1 == cluster2 {
+                        intracluster_distances.push(find_euclidean_distance(&row1, &row2));
+                    } else {
+                        intercluster_distances.push(find_euclidean_distance(&row1, &row2));
+                    }
+                }
+            }
+        }
+
+        let max_intracluster = intracluster_distances
+            .iter()
+            .max_by(|x, y| x.total_cmp(y))
+            .ok_or("Can't find max intracluster distance")?;
+        let min_intercluster = intercluster_distances
+            .iter()
+            .min_by(|x, y| x.total_cmp(y))
+            .ok_or("Can't find min intercluster distance")?;
+
+        Ok(min_intercluster / max_intracluster)
+    }
+
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+
+    #[pyfunction]
+    fn sd_index<'py>(
+        x: PyReadonlyArrayDyn<'py, f64>,
+        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    ) -> PyResult<(f64, f64)> {
+        let x = x.as_array();
+        let y = y.as_array();
+
+        let shape = match (x.shape().first(), x.shape().get(1)) {
+            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
+            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+        };
+
+        let x = x
+            .into_shape(shape)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let y = y
+            .into_shape(shape.0)
+            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
+
+        let result = sd_index_calc(x, y);
+        result.map_err(PyValueError::new_err)
+    }
+
+    fn sd_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<(f64, f64), String> {
+        let features_variances = x.var_axis(Axis(1), 0.);
+
+        let clusters = group(x, y)?;
+        let clusters_centroids = calc_clusters_centers(&clusters);
+        let cluster_features_variances = clusters
+            .iter()
+            .map(|(_, val)| val.var_axis(Axis(1), 0.))
+            .collect::<Vec<Array1<f64>>>();
+
+        let S = Array1::from_vec(
+            cluster_features_variances
+                .iter()
+                .map(|i| i.dot(i).sqrt())
+                .collect::<Vec<f64>>(),
+        )
+        .mean()
+        .ok_or("Can't calculate mean")?
+            / features_variances.dot(&features_variances).sqrt();
+
+        let D = |cluster_centroids: &HashMap<i32, Array1<f64>>| -> f64 {
+            let mut d = 0.0;
+            let mut d_max = -1.0;
+            let mut d_min = f64::MAX;
+            for (i, row1) in cluster_centroids {
+                let mut dist_acum = 0.0;
+                for (j, row2) in cluster_centroids {
+                    if i < j {
+                        let dist = find_euclidean_distance(&row1.view(), &row2.view());
+                        dist_acum += dist;
+
+                        if dist > d_max {
+                            d_max = dist;
+                        }
+                        if dist < d_min {
+                            d_min = dist;
+                        }
+                    }
+                }
+                if dist_acum != 0.0 {
+                    d += 1.0 / dist_acum;
+                }
+            }
+            d * d_max / d_min
+        };
+
+        // let max_cluster_labels =
+        //     Array1::from_vec((0..x.axis_iter(Axis(0)).len() as i32).collect::<Vec<i32>>());
+        // let clusters2 = group(x, max_cluster_labels.view())?;
+        Ok((S, D(&clusters_centroids)))
     }
 }
