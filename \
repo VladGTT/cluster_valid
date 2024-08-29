@@ -1,8 +1,16 @@
+#![recursion_limit = "1024"]
+
 use pyo3::prelude::*;
 #[pymodule]
 mod rust_ext {
 
     use core::f64;
+    use std::{
+        collections::{HashMap, HashSet},
+        iter::zip,
+    };
+
+    use ndarray::{linalg::Dot, prelude::s};
     use ndarray::{
         parallel::prelude::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
         Array1, ArrayView1, ArrayView2, Axis,
@@ -13,10 +21,6 @@ mod rust_ext {
         PyReadonlyArrayDyn,
     };
     use pyo3::{exceptions::PyValueError, prelude::*};
-    use std::{
-        collections::{HashMap, HashSet},
-        iter::zip,
-    };
 
     #[pymodule_init]
     fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -876,7 +880,8 @@ mod rust_ext {
     }
 
     fn tracew_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
-        let cluster_centroids = calc_clusters_centers(&group(x, y)?);
+        let clusters = group(x, y)?;
+        let cluster_centroids = calc_clusters_centers(&clusters);
         let (n, d) = x.dim();
         let mut diffs: Array2<f64> = Array2::zeros((n, d));
         for (i, (x, y)) in zip(x.rows(), y).enumerate() {
@@ -884,83 +889,18 @@ mod rust_ext {
             diffs.row_mut(i).assign(&temp);
         }
 
-        let retval = diffs.t().dot(&diffs).diag().sum();
-        Ok(retval)
-    }
+        let retval = diffs.t().dot(diffs);
 
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
+        // let temp = clusters
+        //     .iter()
+        //     .map(|(i, val)| {
+        //         cluster_centroids[i]
+        //             .broadcast(val.dim())
+        //             .map(|e| e.to_owned() - val)
+        //     })
+        //     .collect::<Option<Vec<Array2<f64>>>>()
+        //     .ok_or("Cant broadcast")?;
 
-    #[pyfunction]
-    fn trcovw_index<'py>(
-        x: PyReadonlyArrayDyn<'py, f64>,
-        y: PyReadonlyArrayDyn<'py, npy_int32>,
-    ) -> PyResult<f64> {
-        let x = x.as_array();
-        let y = y.as_array();
-
-        let shape = match (x.shape().first(), x.shape().get(1)) {
-            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
-            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
-        };
-
-        let x = x
-            .into_shape(shape)
-            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
-
-        let y = y
-            .into_shape(shape.0)
-            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
-
-        let result = trcovw_index_calc(x, y);
-        result.map_err(PyValueError::new_err)
-    }
-
-    fn trcovw_index_calc(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
-        let cluster_centroids = calc_clusters_centers(&group(x, y)?);
-        let (n, d) = x.dim();
-        let mut diffs: Array2<f64> = Array2::zeros((n, d));
-        for (i, (x, y)) in zip(x.rows(), y).enumerate() {
-            let temp = cluster_centroids[y].to_owned() - x;
-            diffs.row_mut(i).assign(&temp);
-        }
-        let w = diffs.t().dot(&diffs);
-        let retval = calc_covariance_matrix(w)?.diag().sum();
-
-        Ok(retval)
-    }
-
-    fn calc_covariance_matrix(x: Array2<f64>) -> Result<Array2<f64>, String> {
-        let calc_covar = |x: ArrayView1<f64>, y: ArrayView1<f64>| -> Option<f64> {
-            let x_mean = x.mean()?;
-            let y_mean = y.mean()?;
-            let n = x.len() as f64;
-            let retval = zip(x, y)
-                .map(|(x, y)| (x_mean - x) * (y_mean - y))
-                .sum::<f64>()
-                / n;
-            Some(retval)
-        };
-        let (_, d) = x.dim();
-        let mut retval: Array2<f64> = Array2::zeros((d, d));
-        for (i, r1) in x.axis_iter(Axis(1)).enumerate() {
-            for (j, r2) in x.axis_iter(Axis(1)).enumerate() {
-                if i <= j {
-                    retval[[i, j]] = calc_covar(r1, r2).ok_or("Cant calc covariance")?;
-                    retval[[j, i]] = retval[[i, j]];
-                }
-            }
-        }
         Ok(retval)
     }
 }
