@@ -9,9 +9,13 @@ name = "rust_ext"
 crate-type = ["cdylib"]
 
 [dependencies]
-ndarray = { version = "0.15.6", features = ["rayon"] }
 numpy = "0.21.0"
-pyo3 = { version = "0.21.0", features = [
+ndarray = { version = "0.16.1", features = ["rayon"] }
+pyo3 = { version = "0.21.2", features = [
   "experimental-declarative-modules",
   "extension-module",
 ] }
+
+[patch.crates-io]
+
+numpy = { git = "https://github.com/VladGTT/rust-numpy.git" }
