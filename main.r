@@ -210,8 +210,8 @@ labels <-c(1, 2, 0, 2, 1, 2, 0, 2, 2, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 1,
            0, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 0, 2, 0, 1, 2, 1, 2, 1, 1,
            2, 1, 2, 2, 2, 1, 1, 0, 2, 1, 2, 1, 2, 2, 0, 2, 0, 1, 0, 0, 0, 2,
            0, 2, 2, 2, 0, 2, 0, 0, 0, 2, 1, 0)
-labels <- as.integer(labels)
+labels <- as.integer(labels)  
 
-intCriteria(matrix,labels,c("C_index","Davies_Bouldin","Silhouette","Gamma","Tau","SD_Scat","SD_Dis"))
-      
+intCriteria(matrix,labels,c("C_index","Davies_Bouldin","Silhouette","Gamma","Tau","SD_Scat","SD_Dis","Ball_Hall","Dunn","Trace_W","Trace_WiB","Ratkowsky_Lance","McClain_Rao","G_plus","Point_biserial"))
+                
   
