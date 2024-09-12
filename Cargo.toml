@@ -15,6 +15,7 @@ pyo3 = { version = "0.21.2", features = [
   "experimental-declarative-modules",
   "extension-module",
 ] }
+itertools = "0.13.0"
 
 [patch.crates-io]
 numpy = { git = "https://github.com/VladGTT/rust-numpy.git" }
