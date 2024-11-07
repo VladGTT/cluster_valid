@@ -115,7 +115,7 @@ fn initialize() -> (Array2<f64>, Array1<i32>) {
     )
 }
 
-const ACCURACY: f64 = 0.0001;
+const ACCURACY: f64 = 0.00000001;
 macro_rules! test_wrapper {
     ($func_name: expr, $val: expr) => {
         let (matrix, clusters) = initialize();
@@ -203,4 +203,8 @@ fn test_gplus_index() {
 #[test]
 fn test_ptbserial_index() {
     test_wrapper!(indexes::ptbiserial_index, -5.571283);
+}
+#[test]
+fn test_scott_index() {
+    test_wrapper!(indexes::scott_index, -35.78162);
 }

@@ -1,4 +1,4 @@
-mod helper_funcs;
+pub mod helper_funcs;
 
 use std::{f64, ops::AddAssign};
 
@@ -28,7 +28,12 @@ pub fn silhouette_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, S
                     temp.push(sum_intra_dists / arr2.len() as f64);
                 }
             }
-            let a = sum_inter_dists / (arr.len() - 1) as f64;
+            let a = sum_inter_dists
+                / if arr.len() == 1 {
+                    1.0
+                } else {
+                    (arr.len() - 1) as f64
+                };
             let b = temp
                 .iter()
                 .min_by(|a, b| a.total_cmp(b))
@@ -133,7 +138,6 @@ pub fn calinski_harabasz_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result
     let cluster_centers = calc_clusters_centers(&cluster_indexes, &x);
     let number_of_clusters = cluster_indexes.keys().len() as f64;
 
-    println!("{cluster_centers:?}");
     let inbetween_group_dispersion = cluster_centers
         .iter()
         .map(|(i, c)| {
@@ -653,5 +657,164 @@ pub fn ptbiserial_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, S
         * (num_pairs_dif_clust * num_pairs_the_same_clust).sqrt()
         / num_pairs_total;
 
+    Ok(retval)
+}
+
+pub fn scott_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+    let cluster_centroids = calc_clusters_centers(&calc_clusters(&y), &x);
+    let x_mean = x.mean_axis(Axis(0)).ok_or("Cant calc mean")?;
+    let mut diffs1: Array2<f64> = Array2::zeros(x.dim());
+    let mut diffs2: Array2<f64> = Array2::zeros(x.dim());
+    for (i, (x, y)) in zip(x.rows(), y).enumerate() {
+        diffs1.row_mut(i).assign(&(&x - &cluster_centroids[y]));
+        diffs2.row_mut(i).assign(&(&x - &x_mean));
+    }
+
+    let w_q = diffs1.t().dot(&diffs1);
+    let t = diffs2.t().dot(&diffs2);
+    let det_t = calc_matrix_determinant(&t.view())?;
+    let det_w_q = calc_matrix_determinant(&w_q.view())?;
+    Ok(x.nrows() as f64 * (det_t / det_w_q).ln())
+}
+
+pub fn mariott_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+    let cluster_centroids = calc_clusters_centers(&calc_clusters(&y), &x);
+    let mut diffs: Array2<f64> = Array2::zeros(x.dim());
+    for (i, (x, y)) in zip(x.rows(), y).enumerate() {
+        diffs.row_mut(i).assign(&(&x - &cluster_centroids[y]));
+    }
+
+    let w_q = diffs.t().dot(&diffs);
+    let det_w_q = calc_matrix_determinant(&w_q.view())?;
+    let q = cluster_centroids.keys().len() as f64;
+    Ok(q.powi(2) * det_w_q)
+}
+
+pub fn rubin_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+    let cluster_centroids = calc_clusters_centers(&calc_clusters(&y), &x);
+    let x_mean = x.mean_axis(Axis(0)).ok_or("Cant calc mean")?;
+    let mut diffs1: Array2<f64> = Array2::zeros(x.dim());
+    let mut diffs2: Array2<f64> = Array2::zeros(x.dim());
+    for (i, (x, y)) in zip(x.rows(), y).enumerate() {
+        diffs1.row_mut(i).assign(&(&x - &cluster_centroids[y]));
+        diffs2.row_mut(i).assign(&(&x - &x_mean));
+    }
+
+    let w_q = diffs1.t().dot(&diffs1);
+    let t = diffs2.t().dot(&diffs2);
+    let det_t = calc_matrix_determinant(&t.view())?;
+    let det_w_q = calc_matrix_determinant(&w_q.view())?;
+    Ok(det_t / det_w_q)
+}
+
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+
+pub fn duda_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+    if y.iter().counts().keys().len() != 2 {
+        return Err("There is more than 2 clusters".to_string());
+    }
+
+    let dataset_mean = x.mean_axis(Axis(0)).ok_or("Cant calc mean")?;
+    let clusters = calc_clusters(&y);
+    let cluster_centers = calc_clusters_centers(&clusters, &x);
+
+    let within_group_dispersion_parent = {
+        let diff = &x - &dataset_mean;
+        diff.dot(&diff.t()).diag().sum()
+    };
+
+    let mut within_group_dispersion_children: HashMap<i32, f64> = HashMap::default();
+    for (cl_idx, idxs) in clusters.iter() {
+        for idx in idxs {
+            let diff = &x.row(*idx) - &cluster_centers[cl_idx];
+
+            within_group_dispersion_children
+                .entry(*cl_idx)
+                .and_modify(|v| *v += diff.dot(&diff))
+                .or_insert(0.);
+        }
+    }
+
+    Ok(within_group_dispersion_parent / (within_group_dispersion_children.values().sum::<f64>()))
+}
+
+pub fn pseudot2_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+    if y.iter().counts().keys().len() != 2 {
+        return Err("There is more than 2 clusters".to_string());
+    }
+    let dataset_mean = x.mean_axis(Axis(0)).ok_or("Cant calc mean")?;
+    let clusters = calc_clusters(&y);
+    let cluster_centers = calc_clusters_centers(&clusters, &x);
+
+    let within_group_dispersion_parent = {
+        let diff = &x - &dataset_mean;
+        diff.dot(&diff.t()).diag().sum()
+    };
+
+    let mut within_group_dispersion_children: HashMap<i32, f64> = HashMap::default();
+    for (cl_idx, idxs) in clusters.iter() {
+        for idx in idxs {
+            let diff = &x.row(*idx) - &cluster_centers[cl_idx];
+
+            within_group_dispersion_children
+                .entry(*cl_idx)
+                .and_modify(|v| *v += diff.dot(&diff))
+                .or_insert(0.);
+        }
+    }
+    let w_children_sum = within_group_dispersion_children.values().sum::<f64>();
+    let retval =
+        (within_group_dispersion_parent - w_children_sum) / w_children_sum / (x.nrows() - 2) as f64;
+    Ok(retval)
+}
+
+pub fn beale_index(x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, String> {
+    if y.iter().counts().keys().len() != 2 {
+        return Err("There is more than 2 clusters".to_string());
+    }
+    let dataset_mean = x.mean_axis(Axis(0)).ok_or("Cant calc mean")?;
+    let clusters = calc_clusters(&y);
+    let cluster_centers = calc_clusters_centers(&clusters, &x);
+
+    let within_group_dispersion_parent = {
+        let diff = &x - &dataset_mean;
+        diff.dot(&diff.t()).diag().sum()
+    };
+
+    let mut within_group_dispersion_children: HashMap<i32, f64> = HashMap::default();
+    for (cl_idx, idxs) in clusters.iter() {
+        for idx in idxs {
+            let diff = &x.row(*idx) - &cluster_centers[cl_idx];
+
+            within_group_dispersion_children
+                .entry(*cl_idx)
+                .and_modify(|v| *v += diff.dot(&diff))
+                .or_insert(0.);
+        }
+    }
+    let n = x.nrows();
+    let w_children_sum = within_group_dispersion_children.values().sum::<f64>();
+    let retval = ((within_group_dispersion_parent - w_children_sum) / w_children_sum)
+        / (2.0 * (((n - 1) as f64) / ((n - 2) as f64)).powf(2.0 / x.ncols() as f64) - 1.0);
     Ok(retval)
 }
