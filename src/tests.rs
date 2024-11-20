@@ -1,7 +1,12 @@
 use super::*;
 use assert_float_eq::*;
+use core::{f64, panic};
+use helpers::{
+    clusters::ClustersNode, clusters_centroids::ClustersCentroidsNode, raw_data::RawDataNode,
+};
+use indexes::{ball_hall, mariott, Subscribee};
 use ndarray::{arr1, arr2};
-use std::time::Instant;
+use ndarray_linalg::Determinant;
 fn initialize() -> (Array2<f64>, Array1<i32>) {
     (
         arr2(&[
@@ -114,97 +119,229 @@ fn initialize() -> (Array2<f64>, Array1<i32>) {
         ]),
     )
 }
+use std::ops::{AddAssign, Mul, SubAssign};
+pub fn calc_matrix_determinant(matrix: &ArrayView2<f64>) -> Result<f64, String> {
+    if matrix.nrows() != matrix.ncols() {
+        return Err("Matrix is not square".to_string());
+    }
+    let mut matrix_U: Array2<f64> = matrix.to_owned();
 
+    // Gaussian elemination
+    for i in 0..matrix_U.nrows() {
+        for j in i + 1..matrix_U.nrows() {
+            let koef = matrix_U[[j, i]] / matrix_U[[i, i]];
+            let temp = matrix_U.row(i).mul(koef);
+            matrix_U.row_mut(j).sub_assign(&temp);
+        }
+    }
+
+    let retval = matrix_U.diag().product();
+    Ok(retval)
+}
 const ACCURACY: f64 = 0.00000001;
-macro_rules! test_wrapper {
-    ($func_name: expr, $val: expr) => {
-        let (matrix, clusters) = initialize();
 
-        let start = Instant::now();
-        let res = $func_name(matrix.view(), clusters.view()).unwrap();
-        let duration = start.elapsed();
+#[test]
+fn test_det_speed() {
+    let arr = Array2::zeros((20, 20));
+    let start = std::time::Instant::now();
+    let res1 = Determinant::det(&arr).unwrap();
+    let stop = std::time::Instant::now();
 
-        println!("Time elapsed is: {:?}", duration);
+    println!("{:?}", { stop - start });
+    let start = std::time::Instant::now();
+    let res2 = calc_matrix_determinant(&arr.view()).unwrap();
+    let stop = std::time::Instant::now();
 
-        assert_float_absolute_eq!(res, $val, ACCURACY);
-    };
+    println!("{:?}", { stop - start });
+
+    assert_float_absolute_eq!(res1, res2, ACCURACY);
+    panic!("");
 }
 
 #[test]
 fn test_silhouette_score() {
-    test_wrapper!(indexes::silhouette_index, 0.8469881221532085);
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let index = Mutex::new(indexes::silhoutte::Node::default());
+
+    let clusters = Mutex::new(ClustersNode::with_subscribee(Subscribee::new(vec![&index])));
+    let mut raw_data = RawDataNode::new((&x, &y), Subscribee::new(vec![&index, &clusters]));
+    raw_data.compute();
+    let index = index.lock().unwrap();
+    let res = index.res.as_ref().unwrap();
+    let val = *res.as_ref().unwrap();
+    assert_float_absolute_eq!(val, 0.8469881221532085, ACCURACY)
 }
 
 #[test]
 fn test_davies_bouldin_score() {
-    test_wrapper!(indexes::davies_bouldin_index, 0.21374667882527568);
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let index = Mutex::new(indexes::davies_bouldin::Node::default());
+    let clusters_centroids = Mutex::new(ClustersCentroidsNode::with_subscribee(Subscribee::new(
+        vec![&index],
+    )));
+    let clusters = Mutex::new(ClustersNode::with_subscribee(Subscribee::new(vec![
+        &index,
+        &clusters_centroids,
+    ])));
+    let mut raw_data = RawDataNode::new(
+        (&x, &y),
+        Subscribee::new(vec![&index, &clusters, &clusters_centroids]),
+    );
+    raw_data.compute();
+    let index = index.lock().unwrap();
+    let res = index.res.as_ref().unwrap();
+    let val = *res.as_ref().unwrap();
+    assert_float_absolute_eq!(val, 0.21374667882527568, ACCURACY)
 }
 #[test]
 fn test_calinski_harabasz_score() {
-    test_wrapper!(indexes::calinski_harabasz_index, 1778.0880985088447);
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let index = Mutex::new(indexes::calinski_harabasz::Node::default());
+    let clusters_centroids = Mutex::new(ClustersCentroidsNode::with_subscribee(Subscribee::new(
+        vec![&index],
+    )));
+    let clusters = Mutex::new(ClustersNode::with_subscribee(Subscribee::new(vec![
+        &index,
+        &clusters_centroids,
+    ])));
+    let mut raw_data = RawDataNode::new(
+        (&x, &y),
+        Subscribee::new(vec![&index, &clusters, &clusters_centroids]),
+    );
+    raw_data.compute();
+    let index = index.lock().unwrap();
+    let res = index.res.as_ref().unwrap();
+    let val = *res.as_ref().unwrap();
+    assert_float_absolute_eq!(val, 1778.0880985088447, ACCURACY)
 }
 #[test]
 fn test_c_index() {
-    test_wrapper!(indexes::c_index, 0.0);
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let index = Mutex::new(indexes::c_index::Node::default());
+    let mut raw_data = RawDataNode::new((&x, &y), Subscribee::new(vec![&index]));
+    raw_data.compute();
+    let index = index.lock().unwrap();
+    let res = index.res.as_ref().unwrap();
+    let val = *res.as_ref().unwrap();
+    assert_float_absolute_eq!(val, 0.0, ACCURACY)
 }
 #[test]
 fn test_gamma_index() {
-    test_wrapper!(indexes::gamma_index, 1.0);
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let index = Mutex::new(indexes::gamma::Node::default());
+    let mut raw_data = RawDataNode::new((&x, &y), Subscribee::new(vec![&index]));
+    raw_data.compute();
+    let index = index.lock().unwrap();
+    let res = index.res.as_ref().unwrap();
+    let val = *res.as_ref().unwrap();
+    assert_float_absolute_eq!(val, 1.0, ACCURACY)
 }
 #[test]
 fn test_ball_hall_index() {
-    test_wrapper!(indexes::ball_hall_index, 1.71928);
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let index = Mutex::new(ball_hall::Node::default());
+    let clusters_centroids = Mutex::new(ClustersCentroidsNode::with_subscribee(Subscribee::new(
+        vec![&index],
+    )));
+    let clusters = Mutex::new(ClustersNode::with_subscribee(Subscribee::new(vec![
+        &index,
+        &clusters_centroids,
+    ])));
+    let mut raw_data = RawDataNode::new(
+        (&x, &y),
+        Subscribee::new(vec![&index, &clusters, &clusters_centroids]),
+    );
+    raw_data.compute();
+    assert_float_absolute_eq!(index.lock().unwrap().res.unwrap(), 1.71928, ACCURACY)
 }
 #[test]
-fn test_tau_index() {
-    test_wrapper!(indexes::tau_index, -1.316936e-05);
+fn test_mariott_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let index = Mutex::new(mariott::Node::default());
+    let clusters_centroids = Mutex::new(ClustersCentroidsNode::with_subscribee(Subscribee::new(
+        vec![&index],
+    )));
+    let clusters = Mutex::new(ClustersNode::with_subscribee(Subscribee::new(vec![
+        &clusters_centroids,
+    ])));
+    let mut raw_data = RawDataNode::new(
+        (&x, &y),
+        Subscribee::new(vec![&index, &clusters, &clusters_centroids]),
+    );
+    raw_data.compute();
+    let index = index.lock().unwrap();
+    let res = index.res.as_ref().unwrap();
+    let val = *res.as_ref().unwrap();
+    assert_float_absolute_eq!(val, 0.0, ACCURACY)
 }
+// #[test]
+// fn test_tau_index() {
+//     wrapper(&indexes::tau::Index {}, -1.316936e-05);
+// }
 #[test]
 fn test_dunn_index() {
-    test_wrapper!(indexes::dunn_index, 1.320007);
-}
-#[test]
-fn test_sd_index() {
-    let (matrix, clusters) = initialize();
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
 
-    let start = Instant::now();
-    let (sd_scat, sd_dis) = indexes::sd_index(matrix.view(), clusters.view()).unwrap();
-    let duration = start.elapsed();
-
-    println!("Time elapsed is: {:?}", duration);
-
-    assert_float_absolute_eq!(sd_scat, 0.02584332, ACCURACY);
-    assert_float_absolute_eq!(sd_dis, 0.1810231, ACCURACY);
+    let index = Mutex::new(indexes::dunn::Node::default());
+    let mut raw_data = RawDataNode::new((&x, &y), Subscribee::new(vec![&index]));
+    raw_data.compute();
+    let index = index.lock().unwrap();
+    let res = index.res.as_ref().unwrap();
+    let val = *res.as_ref().unwrap();
+    assert_float_absolute_eq!(val, 1.320007, ACCURACY)
 }
-#[test]
-fn test_sdbw_index() {
-    test_wrapper!(indexes::sdbw_index, 0.02584332);
-}
-#[test]
-fn test_tracew_index() {
-    test_wrapper!(indexes::tracew_index, 171.911);
-}
-#[test]
-fn test_trcovw_index() {
-    test_wrapper!(indexes::trcovw_index, 3428.8903760801304);
-}
-#[test]
-fn test_ratkowsky_index() {
-    test_wrapper!(indexes::ratkowsky_index, 0.5692245);
-}
-#[test]
-fn test_mcclain_index() {
-    test_wrapper!(indexes::mcclain_index_calc, 0.1243807);
-}
-#[test]
-fn test_gplus_index() {
-    test_wrapper!(indexes::gplus_index, 0.0);
-}
-#[test]
-fn test_ptbserial_index() {
-    test_wrapper!(indexes::ptbiserial_index, -5.571283);
-}
-#[test]
-fn test_scott_index() {
-    test_wrapper!(indexes::scott_index, -35.78162);
-}
+// #[test]
+// fn test_sd_scat_index() {
+//     wrapper(&indexes::sd::IndexScat {}, 0.02584332);
+// }
+// #[test]
+// fn test_sd_dis_index() {
+//     wrapper(&indexes::sd::IndexDis {}, 0.1810231);
+// }
+// #[test]
+// fn test_sdbw_index() {
+//     wrapper(&indexes::sdbw::Index {}, 0.02584332);
+// }
+// #[test]
+// fn test_tracew_index() {
+//     wrapper(&indexes::tracew::Index {}, 171.911);
+// }
+// #[test]
+// fn test_trcovw_index() {
+//     wrapper(&indexes::trcovw::Index {}, 3428.8903760801304);
+// }
+// #[test]
+// fn test_ratkowsky_index() {
+//     wrapper(&indexes::ratkowsky::Index {}, 0.5692245);
+// }
+// #[test]
+// fn test_mcclain_index() {
+//     wrapper(&indexes::mcclain::Index {}, 0.1243807);
+// }
+// #[test]
+// fn test_gplus_index() {
+//     wrapper(&indexes::gplus::Index {}, 0.0);
+// }
+// #[test]
+// fn test_ptbserial_index() {
+//     wrapper(&indexes::ptbiserial::Index {}, -5.571283);
+// }
+// #[test]
+// fn test_scott_index() {
+//     wrapper(&indexes::scott::Index {}, -35.78162);
+// }

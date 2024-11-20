@@ -9,16 +9,14 @@ name = "rust_ext"
 crate-type = ["cdylib"]
 
 [dependencies]
-numpy = "0.21.0"
+numpy = "0.22.1"
 ndarray = { version = "0.16.1", features = ["rayon"] }
-pyo3 = { version = "0.21.2", features = [
-  "experimental-declarative-modules",
-  "extension-module",
-] }
+pyo3 = { version = "0.22.4", features = ["extension-module"] }
 itertools = "0.13.0"
+ndarray-linalg = { version = "0.16.0", features = ["openblas-static"] }
 
 [patch.crates-io]
-numpy = { git = "https://github.com/VladGTT/rust-numpy.git" }
+ndarray-linalg = { git = "https://github.com/VladGTT/ndarray-linalg.git" }
 
 [dev-dependencies]
 assert_float_eq = "1.1.3"
