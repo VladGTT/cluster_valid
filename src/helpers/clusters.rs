@@ -1,15 +1,17 @@
 use crate::{
-    helpers::raw_data::RawDataType,
-    indexes::{Subscribee, Subscriber},
+    indexes::{Sender, Subscriber},
     *,
 };
+use calc_error::CalcError;
 use itertools::*;
-use std::{ops::AddAssign, sync::Arc};
-pub type ClustersType = Arc<HashMap<i32, Array1<usize>>>;
+use std::ops::AddAssign;
 #[derive(Default)]
 pub struct Clusters;
 impl Clusters {
-    pub fn compute(&self, cluster_indexes: &ArrayView1<i32>) -> HashMap<i32, Array1<usize>> {
+    pub fn compute(
+        &self,
+        cluster_indexes: &ArrayView1<i32>,
+    ) -> Result<HashMap<i32, Array1<usize>>, CalcError> {
         let mut cluster_indexes_with_counter = cluster_indexes
             .iter()
             .counts()
@@ -22,29 +24,35 @@ impl Clusters {
             ctr.add_assign(1);
         }
 
-        cluster_indexes_with_counter
+        let res = cluster_indexes_with_counter
             .into_iter()
             .map(|(i, (arr, _))| (i, arr))
-            .collect::<HashMap<i32, Array1<usize>>>()
+            .collect::<HashMap<i32, Array1<usize>>>();
+        Ok(res)
     }
 }
 #[derive(Default)]
 pub struct ClustersNode<'a> {
     index: Clusters,
-    subscribee: Subscribee<'a, ClustersType>,
+    sender: Sender<'a, HashMap<i32, Array1<usize>>>,
 }
 impl<'a> ClustersNode<'a> {
-    pub fn with_subscribee(subscribee: Subscribee<'a, ClustersType>) -> Self {
+    pub fn with_sender(sender: Sender<'a, HashMap<i32, Array1<usize>>>) -> Self {
         Self {
             index: Clusters,
-            subscribee,
+            sender,
         }
     }
 }
-impl<'a> Subscriber<RawDataType<'a>> for ClustersNode<'a> {
-    fn recieve_data(&mut self, data: &RawDataType) {
-        let (_, y) = data;
-        let res = Arc::new(self.index.compute(y));
-        self.subscribee.send_to_subscribers(&res);
+impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)> for ClustersNode<'a> {
+    fn recieve_data(
+        &mut self,
+        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+    ) {
+        let res = match data.as_ref() {
+            Ok((_, y)) => self.index.compute(y),
+            Err(err) => Err(err.clone()),
+        };
+        self.sender.send_to_subscribers(Arc::new(res));
     }
 }

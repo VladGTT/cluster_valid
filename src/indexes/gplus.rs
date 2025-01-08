@@ -1,6 +1,5 @@
 use super::*;
-use ndarray::Axis;
-use ndarray_linalg::Scalar;
+use helpers::{pairs_and_distances::PairsAndDistancesType, raw_data::RawDataType};
 #[derive(Default)]
 pub struct Index;
 impl Index {
@@ -29,5 +28,36 @@ impl Index {
         let n_t = n as f64 * (n as f64 - 1.) / 2.0;
         let value = 2. * s_minus / (n_t * (n_t - 1.0));
         Ok(value)
+    }
+}
+#[derive(Default)]
+pub struct Node<'a> {
+    index: Index,
+
+    raw_data: Option<RawDataType<'a>>,
+    pairs_and_distances: Option<PairsAndDistancesType>,
+    pub res: Option<Result<f64, CalcError>>,
+}
+
+impl<'a> Node<'a> {
+    fn process_when_ready(&mut self) {
+        if let (Some((x, _)), Some((pairs, distances))) =
+            (self.raw_data.as_ref(), self.pairs_and_distances.as_ref())
+        {
+            self.res = Some(self.index.compute(x, distances, pairs));
+        }
+    }
+}
+
+impl<'a> Subscriber<PairsAndDistancesType> for Node<'a> {
+    fn recieve_data(&mut self, data: &PairsAndDistancesType) {
+        self.pairs_and_distances = Some(data.clone());
+        self.process_when_ready();
+    }
+}
+impl<'a> Subscriber<RawDataType<'a>> for Node<'a> {
+    fn recieve_data(&mut self, data: &RawDataType<'a>) {
+        self.raw_data = Some(*data);
+        self.process_when_ready();
     }
 }

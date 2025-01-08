@@ -1,12 +1,15 @@
 use crate::*;
-use helpers::raw_data::RawDataType;
-use indexes::{Subscribee, Subscriber};
+use calc_error::CalcError;
+use indexes::{Sender, Subscriber};
 use ndarray::Axis;
-type PairsAndDistancesType = (Arc<Vec<i8>>, Arc<Vec<f64>>);
 #[derive(Default)]
 pub struct PairsAndDistances;
 impl PairsAndDistances {
-    fn compute(&self, x: &ArrayView2<f64>, y: &ArrayView1<i32>) -> PairsAndDistancesType {
+    fn compute(
+        &self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView1<i32>,
+    ) -> Result<(Vec<i8>, Vec<f64>), CalcError> {
         let n = y.len() * (y.len() - 1) / 2;
         let mut distances: Vec<f64> = Vec::with_capacity(n);
         let mut pairs_in_the_same_cluster: Vec<i8> = Vec::with_capacity(n);
@@ -20,19 +23,34 @@ impl PairsAndDistances {
                 }
             }
         }
-        (Arc::new(pairs_in_the_same_cluster), Arc::new(distances))
+        Ok((pairs_in_the_same_cluster, distances))
     }
 }
 
 #[derive(Default)]
 pub struct PairsAndDistancesNode<'a> {
     index: PairsAndDistances,
-    subscribee: Subscribee<'a, PairsAndDistancesType>,
+    sender: Sender<'a, (Vec<i8>, Vec<f64>)>,
 }
-impl<'a> Subscriber<RawDataType<'a>> for PairsAndDistancesNode<'a> {
-    fn recieve_data(&mut self, data: &RawDataType<'a>) {
-        let (x, y) = data;
-        let res = self.index.compute(x, y);
-        self.subscribee.send_to_subscribers(&res);
+impl<'a> PairsAndDistancesNode<'a> {
+    pub fn with_sender(sender: Sender<'a, (Vec<i8>, Vec<f64>)>) -> Self {
+        Self {
+            index: PairsAndDistances,
+            sender,
+        }
+    }
+}
+impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)>
+    for PairsAndDistancesNode<'a>
+{
+    fn recieve_data(
+        &mut self,
+        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+    ) {
+        let res = match data.as_ref() {
+            Ok((x, y)) => self.index.compute(x, y),
+            Err(err) => Err(err.clone()),
+        };
+        self.sender.send_to_subscribers(Arc::new(res));
     }
 }

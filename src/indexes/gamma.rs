@@ -1,7 +1,7 @@
 use core::f64;
 
 use super::*;
-use helpers::raw_data::RawDataType;
+use helpers::pairs_and_distances::PairsAndDistancesType;
 
 #[derive(Default)]
 pub struct Index;
@@ -41,9 +41,9 @@ pub struct Node {
     pub res: Option<Result<f64, CalcError>>,
 }
 
-impl<'a> Subscriber<RawDataType<'a>> for Node {
-    fn recieve_data(&mut self, data: &RawDataType<'a>) {
-        let (x, y) = *data;
-        self.res = Some(self.index.compute(x, y));
+impl<'a> Subscriber<PairsAndDistancesType> for Node {
+    fn recieve_data(&mut self, data: &PairsAndDistancesType) {
+        let (pairs, distances) = data;
+        self.res = Some(self.index.compute(distances, pairs));
     }
 }
