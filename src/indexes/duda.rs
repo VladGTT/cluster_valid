@@ -1,15 +1,22 @@
-use super::*;
-use itertools::Itertools;
+use crate::calc_error::{CalcError, CombineErrors};
+use ndarray::{Array1, ArrayView1, ArrayView2, Axis};
+use std::{collections::HashMap, sync::Arc};
+
+use super::{Sender, Subscriber};
+use rayon::prelude::*;
 pub struct Index {}
-impl Computable for Index {
-    fn compute(&self, x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, CalcError> {
+impl Index {
+    pub fn compute(
+        &self,
+        x: &ArrayView2<f64>,
+        clusters_centroids: &HashMap<i32, Array1<f64>>,
+        clusters: &HashMap<i32, Array1<usize>>,
+    ) -> Result<f64, CalcError> {
         if y.iter().counts().keys().len() != 2 {
             return Err(CalcError::from("There is more than 2 clusters"));
         }
 
         let dataset_mean = x.mean_axis(Axis(0)).ok_or("Cant calc mean")?;
-        let clusters = calc_clusters(&y);
-        let cluster_centers = calc_clusters_centers(&clusters, &x);
 
         let within_group_dispersion_parent = {
             let diff = &x - &dataset_mean;

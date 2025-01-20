@@ -1,9 +1,10 @@
-use calc_error::CalcError;
-
 use crate::{
+    calc_error::{CalcError, CombineErrors},
     indexes::{Sender, Subscriber},
-    *,
 };
+use ndarray::{prelude::*, Array1, ArrayView2};
+use rayon::prelude::*;
+use std::{collections::HashMap, sync::Arc};
 #[derive(Default)]
 pub struct ClustersCentroids;
 impl ClustersCentroids {
@@ -32,7 +33,7 @@ pub struct ClustersCentroidsNode<'a> {
     sender: Sender<'a, HashMap<i32, Array1<f64>>>,
 }
 impl<'a> ClustersCentroidsNode<'a> {
-    pub fn with_sender(sender: Sender<'a, HashMap<i32, Array1<f64>>>) -> Self {
+    pub fn new(sender: Sender<'a, HashMap<i32, Array1<f64>>>) -> Self {
         Self {
             index: ClustersCentroids,
             clusters: None,
@@ -42,13 +43,13 @@ impl<'a> ClustersCentroidsNode<'a> {
     }
     fn process_when_ready(&mut self) {
         if let (Some(clusters), Some(raw_data)) = (self.clusters.as_ref(), self.raw_data.as_ref()) {
-            let res = match (clusters.as_ref(), raw_data.as_ref()) {
-                (Ok(cls), Ok((x, _))) => self.index.compute(cls, x),
-                (Err(cls_err), Ok(_)) => Err(cls_err.clone()),
-                (Ok(_), Err(rd_err)) => Err(rd_err.clone()),
-                _ => Err(CalcError::from("all wrong")),
+            let res = match clusters.combine(raw_data) {
+                Ok((clstrs, (x, _))) => self.index.compute(clstrs, x),
+                Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(Arc::new(res));
+            self.raw_data = None;
+            self.clusters = None;
         }
     }
 }

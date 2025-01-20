@@ -1,9 +1,21 @@
-use super::*;
-use helpers::raw_data::RawDataType;
+use crate::calc_error::CalcError;
+use ndarray::{ArrayView1, ArrayView2};
+use std::{iter::zip, sync::Arc};
+
+use super::{Sender, Subscriber};
+
+#[derive(Clone, Copy, Debug)]
+pub struct DunnIndexValue {
+    pub val: f64,
+}
 #[derive(Default)]
 pub struct Index;
 impl Index {
-    pub fn compute(&self, x: &ArrayView2<f64>, y: &ArrayView1<i32>) -> Result<f64, CalcError> {
+    pub fn compute(
+        &self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView1<i32>,
+    ) -> Result<DunnIndexValue, CalcError> {
         let n = y.len() * (y.len() - 1) / 2;
         let mut intercluster_distances: Vec<f64> = Vec::with_capacity(n);
         let mut intracluster_distances: Vec<f64> = Vec::with_capacity(n);
@@ -30,20 +42,34 @@ impl Index {
             .min_by(|x, y| x.total_cmp(y))
             .ok_or("Can't find min intercluster distance")?;
 
-        let value = min_intercluster / max_intracluster;
-        Ok(value)
+        let val = min_intercluster / max_intracluster;
+        Ok(DunnIndexValue { val })
     }
 }
 
-#[derive(Default)]
-pub struct Node {
+pub struct Node<'a> {
     index: Index,
-    pub res: Option<Result<f64, CalcError>>,
+    sender: Sender<'a, DunnIndexValue>,
 }
 
-impl<'a> Subscriber<RawDataType<'a>> for Node {
-    fn recieve_data(&mut self, data: &RawDataType<'a>) {
-        let (x, y) = *data;
-        self.res = Some(self.index.compute(x, y));
+impl<'a> Node<'a> {
+    pub fn new(sender: Sender<'a, DunnIndexValue>) -> Self {
+        Self {
+            index: Index::default(),
+            sender,
+        }
+    }
+}
+
+impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)> for Node<'a> {
+    fn recieve_data(
+        &mut self,
+        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+    ) {
+        let res = match data.as_ref() {
+            Ok((x, y)) => self.index.compute(x, y),
+            Err(err) => Err(err.clone()),
+        };
+        self.sender.send_to_subscribers(Arc::new(res));
     }
 }

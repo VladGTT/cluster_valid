@@ -1,6 +1,11 @@
-use super::*;
-use calc_error::CalcError;
-use helpers::{clusters::ClustersType, raw_data::RawDataType};
+use super::{Sender, Subscriber};
+use crate::calc_error::{CalcError, CombineErrors};
+use ndarray::{Array1, ArrayView1, ArrayView2};
+use std::{collections::HashMap, sync::Arc};
+#[derive(Clone, Copy, Debug)]
+pub struct SilhoutteIndexValue {
+    pub val: f64,
+}
 #[derive(Default)]
 pub struct Index;
 
@@ -9,7 +14,7 @@ impl Index {
         &self,
         x: &ArrayView2<f64>,
         clusters: &HashMap<i32, Array1<usize>>,
-    ) -> Result<f64, CalcError> {
+    ) -> Result<SilhoutteIndexValue, CalcError> {
         let mut temp: Vec<f64> = Vec::with_capacity(clusters.keys().len() - 1);
         let mut stor: Vec<f64> = Vec::with_capacity(x.nrows());
         for (c, arr) in clusters.iter() {
@@ -45,35 +50,51 @@ impl Index {
                 temp.clear()
             }
         }
-        let value = Array1::from_vec(stor).mean().ok_or("Cant calc mean")?;
-        Ok(value)
+        let val = Array1::from_vec(stor).mean().ok_or("Cant calc mean")?;
+        Ok(SilhoutteIndexValue { val })
     }
 }
 
-#[derive(Default)]
 pub struct Node<'a> {
     index: Index,
-    raw_data: Option<RawDataType<'a>>,
-    clusters: Option<ClustersType>,
-    pub res: Option<Result<f64, CalcError>>,
+    raw_data: Option<Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>>,
+    clusters: Option<Arc<Result<HashMap<i32, Array1<usize>>, CalcError>>>,
+    sender: Sender<'a, SilhoutteIndexValue>,
 }
 
 impl<'a> Node<'a> {
     fn process_when_ready(&mut self) {
-        if let (Some((x, _)), Some(clusters)) = (self.raw_data.as_ref(), self.clusters.as_ref()) {
-            self.res = Some(self.index.compute(x, clusters));
+        if let (Some(raw_data), Some(clusters)) = (self.raw_data.as_ref(), self.clusters.as_ref()) {
+            let res = match raw_data.combine(clusters) {
+                Ok(((x, _), cls)) => self.index.compute(x, cls),
+                Err(err) => Err(err),
+            };
+            self.sender.send_to_subscribers(Arc::new(res));
+            self.raw_data = None;
+            self.clusters = None;
+        }
+    }
+    pub fn new(sender: Sender<'a, SilhoutteIndexValue>) -> Self {
+        Self {
+            index: Index::default(),
+            raw_data: None,
+            clusters: None,
+            sender,
         }
     }
 }
-impl<'a> Subscriber<RawDataType<'a>> for Node<'a> {
-    fn recieve_data(&mut self, data: &RawDataType<'a>) {
-        self.raw_data = Some(*data);
+impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)> for Node<'a> {
+    fn recieve_data(
+        &mut self,
+        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+    ) {
+        self.raw_data = Some(data);
         self.process_when_ready();
     }
 }
-impl<'a> Subscriber<ClustersType> for Node<'a> {
-    fn recieve_data(&mut self, data: &ClustersType) {
-        self.clusters = Some(data.clone());
+impl<'a> Subscriber<HashMap<i32, Array1<usize>>> for Node<'a> {
+    fn recieve_data(&mut self, data: Arc<Result<HashMap<i32, Array1<usize>>, CalcError>>) {
+        self.clusters = Some(data);
         self.process_when_ready();
     }
 }

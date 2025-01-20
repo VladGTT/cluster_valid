@@ -1,7 +1,7 @@
-use crate::*;
-use calc_error::CalcError;
-use indexes::{Sender, Subscriber};
-use ndarray::Axis;
+use crate::calc_error::CalcError;
+use crate::indexes::{Sender, Subscriber};
+use ndarray::{ArrayView1, ArrayView2, Axis};
+use std::sync::Arc;
 #[derive(Default)]
 pub struct PairsAndDistances;
 impl PairsAndDistances {
@@ -27,13 +27,12 @@ impl PairsAndDistances {
     }
 }
 
-#[derive(Default)]
 pub struct PairsAndDistancesNode<'a> {
     index: PairsAndDistances,
     sender: Sender<'a, (Vec<i8>, Vec<f64>)>,
 }
 impl<'a> PairsAndDistancesNode<'a> {
-    pub fn with_sender(sender: Sender<'a, (Vec<i8>, Vec<f64>)>) -> Self {
+    pub fn new(sender: Sender<'a, (Vec<i8>, Vec<f64>)>) -> Self {
         Self {
             index: PairsAndDistances,
             sender,

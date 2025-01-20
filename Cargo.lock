@@ -879,6 +879,7 @@ dependencies = [
  "ndarray-linalg",
  "numpy",
  "pyo3",
+ "rayon",
 ]
 
 [[package]]

@@ -1,10 +1,8 @@
-use crate::{
-    indexes::{Sender, Subscriber},
-    *,
-};
-use calc_error::CalcError;
+use crate::calc_error::CalcError;
+use crate::indexes::{Sender, Subscriber};
 use itertools::*;
-use std::ops::AddAssign;
+use ndarray::{Array1, ArrayView1, ArrayView2};
+use std::{collections::HashMap, ops::AddAssign, sync::Arc};
 #[derive(Default)]
 pub struct Clusters;
 impl Clusters {
@@ -26,18 +24,17 @@ impl Clusters {
 
         let res = cluster_indexes_with_counter
             .into_iter()
-            .map(|(i, (arr, _))| (i, arr))
+            .map(|(i, (arr, _))| (i, Array1::from(arr)))
             .collect::<HashMap<i32, Array1<usize>>>();
         Ok(res)
     }
 }
-#[derive(Default)]
 pub struct ClustersNode<'a> {
     index: Clusters,
     sender: Sender<'a, HashMap<i32, Array1<usize>>>,
 }
 impl<'a> ClustersNode<'a> {
-    pub fn with_sender(sender: Sender<'a, HashMap<i32, Array1<usize>>>) -> Self {
+    pub fn new(sender: Sender<'a, HashMap<i32, Array1<usize>>>) -> Self {
         Self {
             index: Clusters,
             sender,

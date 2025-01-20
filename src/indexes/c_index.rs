@@ -1,15 +1,22 @@
-use super::*;
-use calc_error::CalcError;
-use helpers::raw_data::RawDataType;
+use crate::calc_error::CalcError;
+use crate::indexes::{Sender, Subscriber};
 use itertools::Itertools;
-use std::iter::zip;
-use std::ops::AddAssign;
+use ndarray::{ArrayView1, ArrayView2};
+use std::{collections::HashMap, iter::zip, ops::AddAssign, sync::Arc};
 
+#[derive(Clone, Copy, Debug)]
+pub struct CIndexValue {
+    pub val: f64,
+}
 #[derive(Default)]
 pub struct Index;
 
 impl Index {
-    pub fn compute(&self, x: &ArrayView2<f64>, y: &ArrayView1<i32>) -> Result<f64, CalcError> {
+    pub fn compute(
+        &self,
+        x: &ArrayView2<f64>,
+        y: &ArrayView1<i32>,
+    ) -> Result<CIndexValue, CalcError> {
         //calculating Nw  -- total number of pairs of observations belonging to the same cluster
         let counts = y
             .iter()
@@ -56,21 +63,35 @@ impl Index {
         let sum_of_withincluster_distances = distances_per_cluster.values().sum::<f64>();
 
         //calculating c_index value
-        let value = (sum_of_withincluster_distances - sum_of_minimum_distances)
+        let val = (sum_of_withincluster_distances - sum_of_minimum_distances)
             / (sum_of_maximum_distances - sum_of_minimum_distances);
-        Ok(value)
+        Ok(CIndexValue { val })
     }
 }
 
-#[derive(Default)]
-pub struct Node {
+pub struct Node<'a> {
     index: Index,
-    pub res: Option<Result<f64, CalcError>>,
+    sender: Sender<'a, CIndexValue>,
 }
 
-impl<'a> Subscriber<RawDataType<'a>> for Node {
-    fn recieve_data(&mut self, data: &RawDataType<'a>) {
-        let (x, y) = *data;
-        self.res = Some(self.index.compute(x, y));
+impl<'a> Node<'a> {
+    pub fn new(sender: Sender<'a, CIndexValue>) -> Self {
+        Self {
+            index: Index::default(),
+            sender,
+        }
+    }
+}
+
+impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)> for Node<'a> {
+    fn recieve_data(
+        &mut self,
+        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+    ) {
+        let res = match data.as_ref() {
+            Ok((x, y)) => self.index.compute(x, y),
+            Err(err) => Err(err.clone()),
+        };
+        self.sender.send_to_subscribers(Arc::new(res));
     }
 }
