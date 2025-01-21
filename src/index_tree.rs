@@ -6,15 +6,15 @@ use crate::indexes::ball_hall::BallHallIndexValue;
 // use crate::indexes::silhoutte::SilhoutteIndexValue;
 use crate::{
     calc_error::CalcError,
-    helpers::{
-        clusters::ClustersNode, clusters_centroids::ClustersCentroidsNode,
-        pairs_and_distances::PairsAndDistancesNode, raw_data::RawDataNode,
-    },
     indexes::{
         ball_hall::Node as BallHallNode,
         // c_index::Node as CIndexNode,
         // calinski_harabasz::Node as CalinskiHarabaszNode, davies_bouldin::Node as DaviesBouldinNode,
         // dunn::Node as DunnNode, silhoutte::Node as SilHoutteNode,
+        helpers::{
+            clusters::ClustersNode, clusters_centroids::ClustersCentroidsNode,
+            pairs_and_distances::PairsAndDistancesNode, raw_data::RawDataNode,
+        },
     },
     sender::{Sender, Subscriber},
 };

@@ -1,4 +1,5 @@
 pub mod ball_hall;
+pub mod helpers;
 // pub mod beale;
 // pub mod c_index;
 // pub mod calinski_harabasz;

@@ -1,5 +1,4 @@
 mod calc_error;
-mod helpers;
 mod index_tree;
 mod indexes;
 mod sender;
