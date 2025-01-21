@@ -1,5 +1,5 @@
 use crate::calc_error::CalcError;
-use crate::indexes::{Sender, Subscriber};
+use crate::sender::{Sender, Subscriber};
 use itertools::*;
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use std::{collections::HashMap, ops::AddAssign, sync::Arc};
@@ -31,25 +31,25 @@ impl Clusters {
 }
 pub struct ClustersNode<'a> {
     index: Clusters,
-    sender: Sender<'a, HashMap<i32, Array1<usize>>>,
+    sender: Sender<'a, Arc<HashMap<i32, Array1<usize>>>>,
 }
 impl<'a> ClustersNode<'a> {
-    pub fn new(sender: Sender<'a, HashMap<i32, Array1<usize>>>) -> Self {
+    pub fn new(sender: Sender<'a, Arc<HashMap<i32, Array1<usize>>>>) -> Self {
         Self {
             index: Clusters,
             sender,
         }
     }
 }
-impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)> for ClustersNode<'a> {
+impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for ClustersNode<'a> {
     fn recieve_data(
         &mut self,
-        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+        data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
     ) {
         let res = match data.as_ref() {
-            Ok((_, y)) => self.index.compute(y),
+            Ok((_, y)) => self.index.compute(y).map(|v| Arc::new(v)),
             Err(err) => Err(err.clone()),
         };
-        self.sender.send_to_subscribers(Arc::new(res));
+        self.sender.send_to_subscribers(res);
     }
 }

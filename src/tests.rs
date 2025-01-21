@@ -1,19 +1,9 @@
-use crate::helpers::ResultReader;
-use crate::helpers::{
-    clusters::ClustersNode, clusters_centroids::ClustersCentroidsNode, raw_data::RawDataNode,
-};
-use crate::index_tree::IndexTree;
-use crate::indexes::{self, ball_hall, Sender};
-use crate::rust_ext::IndexTreeConfig;
+use crate::index_tree::IndexTreeBuilder;
 use assert_float_eq::*;
-use core::{f64, panic};
 use ndarray::{arr1, arr2, prelude::*};
-use std::{
-    cell::Cell,
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
-// use ndarray_linalg::Determinant;
+
+const ACCURACY: f64 = 1e-10;
+
 fn initialize() -> (Array2<f64>, Array1<i32>) {
     (
         arr2(&[
@@ -126,7 +116,6 @@ fn initialize() -> (Array2<f64>, Array1<i32>) {
         ]),
     )
 }
-use std::ops::{AddAssign, Mul, SubAssign};
 // pub fn calc_matrix_determinant(matrix: &ArrayView2<f64>) -> Result<f64, String> {
 //     if matrix.nrows() != matrix.ncols() {
 //         return Err("Matrix is not square".to_string());
@@ -145,8 +134,6 @@ use std::ops::{AddAssign, Mul, SubAssign};
 //     let retval = matrix_U.diag().product();
 //     Ok(retval)
 // }
-const ACCURACY: f64 = 1e-10;
-
 // #[test]
 // fn test_det_speed() {
 //     let arr = Array2::zeros((20, 20));
@@ -179,22 +166,6 @@ const ACCURACY: f64 = 1e-10;
 //     let res = index.res.as_ref().unwrap();
 //     let val = *res.as_ref().unwrap();
 //     assert_float_absolute_eq!(val, 0.8469881221532085, ACCURACY)
-// }
-// #[test]
-// fn test_index_tree() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//
-//     let config = IndexTreeConfig { ball_hall: true};
-//
-//     let tree = IndexTree::new(&config);
-//
-//     let start = std::time::Instant::now();
-//     let res = tree.compute((&x, &y));
-//     let end = std::time::Instant::now();
-//     //
-//     println!("Duration {} microsecs", (end - start).as_micros());
-//     assert_float_absolute_eq!(res.ball_hall.unwrap().unwrap(), 1.71928, ACCURACY)
 // }
 // #[test]
 // fn test_davies_bouldin_score() {
@@ -277,26 +248,20 @@ const ACCURACY: f64 = 1e-10;
 //     let val = *res.as_ref().unwrap();
 //     assert_float_absolute_eq!(val, 1.0, ACCURACY)
 // }
-// #[test]
-// fn test_ball_hall_index() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//     let mut res = None;
-//
-//     let res_reader = Mutex::new(ResultReader::new(&mut res));
-//     let index = Mutex::new(ball_hall::Node::new(Sender::new(vec![&res_reader])));
-//     let clusters_centroids = Mutex::new(ClustersCentroidsNode::new(Sender::new(vec![&index])));
-//     let clusters = Mutex::new(ClustersNode::new(Sender::new(vec![
-//         &index,
-//         &clusters_centroids,
-//     ])));
-//     let mut raw_data = RawDataNode::new(
-//         (&x, &y),
-//         Sender::new(vec![&index, &clusters, &clusters_centroids]),
-//     );
-//     raw_data.compute();
-//     assert_float_absolute_eq!(res.unwrap().unwrap(), 1.71928, ACCURACY)
-// }
+#[test]
+fn test_ball_hall_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_ball_hall().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} microsecs", (end - start).as_micros());
+    assert_float_absolute_eq!(res.ball_hall.unwrap().unwrap().val, 1.71928, ACCURACY)
+}
 // #[test]
 // fn test_mariott_index() {
 //     let (x, y) = initialize();

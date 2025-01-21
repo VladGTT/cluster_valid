@@ -2,6 +2,7 @@ mod calc_error;
 mod helpers;
 mod index_tree;
 mod indexes;
+mod sender;
 #[cfg(test)]
 mod tests;
 
@@ -10,12 +11,12 @@ use pyo3::prelude::*;
 mod rust_ext {
     use super::*;
     use core::f64;
-    use index_tree::{IndexTree, IndexTreeReturnValue};
-    use numpy::{npyffi::npy_int32, PyReadonlyArrayDyn};
-    use pyo3::exceptions::PyValueError;
+    use index_tree::{IndexTreeBuilder, IndexTreeReturnValue};
+    use numpy::{npyffi::npy_int32, PyReadonlyArray1, PyReadonlyArray2};
+
     #[pyclass(frozen)]
     #[derive(Default, Debug)]
-    pub struct IndexTreeConfig {
+    struct IndexTreeConfig {
         pub ball_hall: bool,
         pub davies_bouldin: bool,
         pub c_index: bool,
@@ -47,38 +48,28 @@ mod rust_ext {
 
     #[pymodule_init]
     fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        m.add(
-            "compute_indexes_with_config",
-            m.getattr("compute_indexes_with_config")?,
-        )?;
-
+        m.add("compute_indexes", m.getattr("compute_indexes")?)?;
+        m.add("Config", m.getattr("IndexTreeConfig")?)?;
         Ok(())
     }
     #[pyfunction]
-    fn compute_indexes_with_config<'py>(
-        x: PyReadonlyArrayDyn<'py, f64>,
-        y: PyReadonlyArrayDyn<'py, npy_int32>,
+    fn compute_indexes<'py>(
+        py: Python<'py>,
+        x: PyReadonlyArray2<'py, f64>,
+        y: PyReadonlyArray1<'py, npy_int32>,
         config: Py<IndexTreeConfig>,
     ) -> PyResult<Py<IndexTreeReturnValue>> {
-        let py = x.py();
         let x = x.as_array();
         let y = y.as_array();
-        let shape = match (x.shape().first(), x.shape().get(1)) {
-            (Some(val_x), Some(val_y)) => (*val_x, *val_y),
-            _ => return Err(PyValueError::new_err("x is not 2 dimentional".to_string())),
+
+        let tree = {
+            let config = config.get();
+            let mut builder = IndexTreeBuilder::default();
+            if config.ball_hall {
+                builder = builder.add_ball_hall();
+            }
+            builder.finish()
         };
-        let x = x
-            .into_shape(shape)
-            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
-        let y = y
-            .into_shape(shape.0)
-            .map_err(|msg| PyValueError::new_err(format!("{msg}")))?;
-
-        //
-        let config = config.get();
-        let tree = IndexTree::new(config);
-        let res = tree.compute((&x, &y));
-
-        Py::new(py, res)
+        Py::new(py, tree.compute((x, y)))
     }
 }

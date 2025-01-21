@@ -1,24 +1,22 @@
-use crate::{calc_error::CalcError, indexes::Subscriber};
-use std::{ops::Deref, sync::Arc};
 pub mod clusters;
 pub mod clusters_centroids;
 pub mod pairs_and_distances;
 pub mod raw_data;
 
-#[derive(Default, Debug)]
-pub struct ResultReader<T> {
-    res: Option<Arc<Result<T, CalcError>>>,
-}
-impl<T: Clone> ResultReader<T> {
-    pub fn get(&self) -> Option<Result<T, CalcError>> {
-        self.res.as_ref().map(|d| d.deref().clone())
-    }
-}
-impl<T: Clone> Subscriber<T> for ResultReader<T> {
-    fn recieve_data(&mut self, data: std::sync::Arc<Result<T, CalcError>>) {
-        self.res = Some(data);
-    }
-}
+// #[derive(Default, Debug)]
+// pub struct ResultReader<T> {
+//     res: Option<Arc<Result<T, CalcError>>>,
+// }
+// impl<T: Clone> ResultReader<T> {
+//     pub fn get(&self) -> Option<Result<T, CalcError>> {
+//         self.res.as_ref().map(|d| d.deref().clone())
+//     }
+// }
+// impl<T: Clone> Subscriber<T> for ResultReader<T> {
+//     fn recieve_data(&mut self, data: std::sync::Arc<Result<T, CalcError>>) {
+//         self.res = Some(data);
+//     }
+// }
 // pub fn find_euclidean_distance(point1: &ArrayView1<f64>, point2: &ArrayView1<f64>) -> f64 {
 //     calc_vector_euclidean_length(&(point2 - point1).view())
 // }

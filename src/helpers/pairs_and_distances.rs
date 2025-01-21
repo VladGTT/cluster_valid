@@ -1,5 +1,5 @@
 use crate::calc_error::CalcError;
-use crate::indexes::{Sender, Subscriber};
+use crate::sender::{Sender, Subscriber};
 use ndarray::{ArrayView1, ArrayView2, Axis};
 use std::sync::Arc;
 #[derive(Default)]
@@ -29,27 +29,25 @@ impl PairsAndDistances {
 
 pub struct PairsAndDistancesNode<'a> {
     index: PairsAndDistances,
-    sender: Sender<'a, (Vec<i8>, Vec<f64>)>,
+    sender: Sender<'a, Arc<(Vec<i8>, Vec<f64>)>>,
 }
 impl<'a> PairsAndDistancesNode<'a> {
-    pub fn new(sender: Sender<'a, (Vec<i8>, Vec<f64>)>) -> Self {
+    pub fn new(sender: Sender<'a, Arc<(Vec<i8>, Vec<f64>)>>) -> Self {
         Self {
             index: PairsAndDistances,
             sender,
         }
     }
 }
-impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)>
-    for PairsAndDistancesNode<'a>
-{
+impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for PairsAndDistancesNode<'a> {
     fn recieve_data(
         &mut self,
-        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+        data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
     ) {
         let res = match data.as_ref() {
-            Ok((x, y)) => self.index.compute(x, y),
+            Ok((x, y)) => self.index.compute(x, y).map(|v| Arc::new(v)),
             Err(err) => Err(err.clone()),
         };
-        self.sender.send_to_subscribers(Arc::new(res));
+        self.sender.send_to_subscribers(res);
     }
 }
