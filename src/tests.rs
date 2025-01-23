@@ -116,42 +116,15 @@ fn initialize() -> (Array2<f64>, Array1<i32>) {
         ]),
     )
 }
-// pub fn calc_matrix_determinant(matrix: &ArrayView2<f64>) -> Result<f64, String> {
-//     if matrix.nrows() != matrix.ncols() {
-//         return Err("Matrix is not square".to_string());
-//     }
-//     let mut matrix_U: Array2<f64> = matrix.to_owned();
-//
-//     // Gaussian elemination
-//     for i in 0..matrix_U.nrows() {
-//         for j in i + 1..matrix_U.nrows() {
-//             let koef = matrix_U[[j, i]] / matrix_U[[i, i]];
-//             let temp = matrix_U.row(i).mul(koef);
-//             matrix_U.row_mut(j).sub_assign(&temp);
-//         }
-//     }
-//
-//     let retval = matrix_U.diag().product();
-//     Ok(retval)
-// }
+// use ndarray_linalg::solve::Inverse;
 // #[test]
-// fn test_det_speed() {
-//     let arr = Array2::zeros((20, 20));
-//     let start = std::time::Instant::now();
-//     let res1 = Determinant::det(&arr).unwrap();
-//     let stop = std::time::Instant::now();
-//
-//     println!("{:?}", { stop - start });
-//     let start = std::time::Instant::now();
-//     let res2 = calc_matrix_determinant(&arr.view()).unwrap();
-//     let stop = std::time::Instant::now();
-//
-//     println!("{:?}", { stop - start });
-//
-//     assert_float_absolute_eq!(res1, res2, ACCURACY);
-//     panic!("");
+// fn test_matrix_inv() {
+//     let matrix: Array2<f64> = arr2(&[[-1., 1.5], [1., -1.]]);
+//     let inv = Inverse::inv(&matrix).unwrap();
+//     println!("{inv}");
+//     panic!("Just panic")
 // }
-//
+
 // #[test]
 // fn test_silhouette_score() {
 //     let (x, y) = initialize();
@@ -248,6 +221,7 @@ fn initialize() -> (Array2<f64>, Array1<i32>) {
 //     let val = *res.as_ref().unwrap();
 //     assert_float_absolute_eq!(val, 1.0, ACCURACY)
 // }
+
 #[test]
 fn test_ball_hall_index() {
     let (x, y) = initialize();
@@ -259,35 +233,79 @@ fn test_ball_hall_index() {
     let res = tree.compute((x, y));
     let end = std::time::Instant::now();
     //
-    println!("Duration {} microsecs", (end - start).as_micros());
+    println!("Duration {} milisecs", (end - start).as_millis());
     assert_float_absolute_eq!(res.ball_hall.unwrap().unwrap().val, 1.71928, ACCURACY)
 }
-// #[test]
-// fn test_mariott_index() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//
-//     let index = Mutex::new(mariott::Node::default());
-//     let clusters_centroids = Mutex::new(ClustersCentroidsNode::with_subscribee(Subscribee::new(
-//         vec![&index],
-//     )));
-//     let clusters = Mutex::new(ClustersNode::with_subscribee(Subscribee::new(vec![
-//         &clusters_centroids,
-//     ])));
-//     let mut raw_data = RawDataNode::new(
-//         (&x, &y),
-//         Subscribee::new(vec![&index, &clusters, &clusters_centroids]),
-//     );
-//     raw_data.compute();
-//     let index = index.lock().unwrap();
-//     let res = index.res.as_ref().unwrap();
-//     let val = *res.as_ref().unwrap();
-//     assert_float_absolute_eq!(val, 0.0, ACCURACY)
-// }
-// #[test]
-// fn test_tau_index() {
-//     wrapper(&indexes::tau::Index {}, -1.316936e-05);
-// }
+#[test]
+fn test_rubin_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_rubin().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.rubin.unwrap().unwrap().val, 1099.786, ACCURACY)
+}
+#[test]
+fn test_mariott_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_mariott().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.mariott.unwrap().unwrap().val, 65223.64, ACCURACY)
+}
+#[test]
+fn test_scott_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_scott().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.scott.unwrap().unwrap().val, 700.2871, ACCURACY)
+}
+#[test]
+fn test_friedman_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_friedman().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.friedman.unwrap().unwrap().val, 70.47645, ACCURACY)
+}
+#[test]
+fn test_tau_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_tau().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.tau.unwrap().unwrap().val, -1.316936e-05, ACCURACY)
+}
 // #[test]
 // fn test_dunn_index() {
 //     let (x, y) = initialize();
@@ -354,8 +372,4 @@ fn test_ball_hall_index() {
 // #[test]
 // fn test_ptbserial_index() {
 //     wrapper(&indexes::ptbiserial::Index {}, -5.571283);
-// }
-// #[test]
-// fn test_scott_index() {
-//     wrapper(&indexes::scott::Index {}, -35.78162);
 // }

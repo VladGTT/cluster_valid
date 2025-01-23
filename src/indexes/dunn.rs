@@ -1,8 +1,8 @@
 use crate::calc_error::CalcError;
 use ndarray::{ArrayView1, ArrayView2};
-use std::{iter::zip, sync::Arc};
+use std::iter::zip;
 
-use super::{Sender, Subscriber};
+use crate::sender::{Sender, Subscriber};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DunnIndexValue {
@@ -55,21 +55,21 @@ pub struct Node<'a> {
 impl<'a> Node<'a> {
     pub fn new(sender: Sender<'a, DunnIndexValue>) -> Self {
         Self {
-            index: Index::default(),
+            index: Index,
             sender,
         }
     }
 }
 
-impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)> for Node<'a> {
+impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for Node<'a> {
     fn recieve_data(
         &mut self,
-        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+        data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
     ) {
         let res = match data.as_ref() {
             Ok((x, y)) => self.index.compute(x, y),
             Err(err) => Err(err.clone()),
         };
-        self.sender.send_to_subscribers(Arc::new(res));
+        self.sender.send_to_subscribers(res);
     }
 }

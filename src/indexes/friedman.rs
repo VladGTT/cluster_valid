@@ -1,67 +1,54 @@
 use crate::calc_error::{CalcError, CombineErrors};
-use ndarray::{Array1, ArrayView1, ArrayView2};
-use std::{collections::HashMap, sync::Arc};
+use core::f64;
+use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, Axis};
+use ndarray_linalg::Inverse;
+use std::{collections::HashMap, iter::zip, sync::Arc};
 
 use crate::sender::{Sender, Subscriber};
-use rayon::prelude::*;
 
 #[derive(Clone, Copy, Debug)]
-pub struct DaviesBouldinIndexValue {
+pub struct FriedmanIndexValue {
     pub val: f64,
 }
 #[derive(Default)]
 pub struct Index;
-
 impl Index {
-    pub fn compute(
+    fn compute(
         &self,
         x: &ArrayView2<f64>,
+        y: &ArrayView1<i32>,
         clusters_centroids: &HashMap<i32, Array1<f64>>,
         clusters: &HashMap<i32, Array1<usize>>,
-    ) -> Result<DaviesBouldinIndexValue, CalcError> {
-        let mut stor: HashMap<i32, f64> = HashMap::default();
-
-        for (c, arr) in clusters.iter() {
-            let temp = arr
-                .par_iter()
-                .map(|i| (&x.row(*i) - &clusters_centroids[c]).pow2().sum().sqrt())
-                .sum::<f64>()
-                / arr.len() as f64;
-            stor.insert(*c, temp);
+    ) -> Result<f64, CalcError> {
+        let (n, d) = x.dim();
+        let mut dif: Array2<f64> = Array2::zeros((n, d));
+        for (i, (x, y)) in zip(x.rows(), y).enumerate() {
+            let temp = &clusters_centroids[y] - &x;
+            dif.row_mut(i).assign(&temp);
         }
-        let q = clusters.keys().len();
+        let wg = dif.t().dot(&dif);
+        let wg_inv = Inverse::inv(&wg).map_err(|e| e.to_string())?;
 
-        let mut acum = 0.0;
-        let mut temp: Vec<f64> = Vec::with_capacity(q);
-        for i in clusters.keys() {
-            for j in clusters.keys() {
-                if *i != *j {
-                    let coef = (stor[i] + stor[j])
-                        / (&clusters_centroids[j] - &clusters_centroids[i])
-                            .pow2()
-                            .sum()
-                            .sqrt();
-                    temp.push(coef);
-                }
-            }
-            acum += temp
-                .iter()
-                .max_by(|a, b| a.total_cmp(b))
-                .ok_or("Cant find max val")?;
-            temp.clear();
+        let data_center = x.mean_axis(Axis(0)).ok_or("Cant calc data centroid")?;
+
+        let mut b: Array2<f64> = Array2::zeros((n, d));
+
+        for (i, (x, y)) in zip(x.rows(), y).enumerate() {
+            let temp = &data_center - &clusters_centroids[y];
+            b.row_mut(i).assign(&temp);
         }
 
-        let val = acum / q as f64;
-        Ok(DaviesBouldinIndexValue { val })
+        let bg = b.t().dot(&b);
+        let value = wg_inv.dot(&bg).diag().sum();
+        Ok(value)
     }
 }
-
 pub struct Node<'a> {
     index: Index,
     raw_data: Option<Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>>,
     clusters: Option<Result<Arc<HashMap<i32, Array1<usize>>>, CalcError>>,
     clusters_centroids: Option<Result<Arc<HashMap<i32, Array1<f64>>>, CalcError>>,
-    sender: Sender<'a, DaviesBouldinIndexValue>,
+    sender: Sender<'a, FriedmanIndexValue>,
 }
 
 impl<'a> Node<'a> {
@@ -72,7 +59,10 @@ impl<'a> Node<'a> {
             self.clusters_centroids.as_ref(),
         ) {
             let res = match raw_data.combine(clusters).combine(clusters_centroids) {
-                Ok((((x, _), cls), cls_ctrds)) => self.index.compute(x, cls_ctrds, cls),
+                Ok((((x, y), cls), cls_ctrds)) => self
+                    .index
+                    .compute(x, y, cls_ctrds, cls)
+                    .map(|val| FriedmanIndexValue { val }),
                 Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(res);
@@ -81,7 +71,7 @@ impl<'a> Node<'a> {
             self.clusters_centroids = None;
         }
     }
-    pub fn new(sender: Sender<'a, DaviesBouldinIndexValue>) -> Self {
+    pub fn new(sender: Sender<'a, FriedmanIndexValue>) -> Self {
         Self {
             index: Index,
             raw_data: None,

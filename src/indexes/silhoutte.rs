@@ -1,5 +1,5 @@
-use super::{Sender, Subscriber};
 use crate::calc_error::{CalcError, CombineErrors};
+use crate::sender::{Sender, Subscriber};
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use std::{collections::HashMap, sync::Arc};
 #[derive(Clone, Copy, Debug)]
@@ -57,8 +57,8 @@ impl Index {
 
 pub struct Node<'a> {
     index: Index,
-    raw_data: Option<Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>>,
-    clusters: Option<Arc<Result<HashMap<i32, Array1<usize>>, CalcError>>>,
+    raw_data: Option<Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>>,
+    clusters: Option<Result<Arc<HashMap<i32, Array1<usize>>>, CalcError>>,
     sender: Sender<'a, SilhoutteIndexValue>,
 }
 
@@ -69,7 +69,7 @@ impl<'a> Node<'a> {
                 Ok(((x, _), cls)) => self.index.compute(x, cls),
                 Err(err) => Err(err),
             };
-            self.sender.send_to_subscribers(Arc::new(res));
+            self.sender.send_to_subscribers(res);
             self.raw_data = None;
             self.clusters = None;
         }
@@ -83,17 +83,17 @@ impl<'a> Node<'a> {
         }
     }
 }
-impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)> for Node<'a> {
+impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for Node<'a> {
     fn recieve_data(
         &mut self,
-        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+        data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
     ) {
         self.raw_data = Some(data);
         self.process_when_ready();
     }
 }
-impl<'a> Subscriber<HashMap<i32, Array1<usize>>> for Node<'a> {
-    fn recieve_data(&mut self, data: Arc<Result<HashMap<i32, Array1<usize>>, CalcError>>) {
+impl<'a> Subscriber<Arc<HashMap<i32, Array1<usize>>>> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<Arc<HashMap<i32, Array1<usize>>>, CalcError>) {
         self.clusters = Some(data);
         self.process_when_ready();
     }

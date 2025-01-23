@@ -2,14 +2,14 @@ use crate::calc_error::{CalcError, CombineErrors};
 use ndarray::{Array1, ArrayView1, ArrayView2, Axis};
 use std::{collections::HashMap, sync::Arc};
 
-use super::{Sender, Subscriber};
+use crate::sender::{Sender, Subscriber};
 
 #[derive(Clone, Copy, Debug)]
 pub struct CalinskiHarabaszIndexValue {
     pub val: f64,
 }
 #[derive(Default)]
-pub struct Index {}
+pub struct Index;
 impl Index {
     fn compute(
         &self,
@@ -43,9 +43,9 @@ impl Index {
 }
 pub struct Node<'a> {
     index: Index,
-    raw_data: Option<Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>>,
-    clusters: Option<Arc<Result<HashMap<i32, Array1<usize>>, CalcError>>>,
-    clusters_centroids: Option<Arc<Result<HashMap<i32, Array1<f64>>, CalcError>>>,
+    raw_data: Option<Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>>,
+    clusters: Option<Result<Arc<HashMap<i32, Array1<usize>>>, CalcError>>,
+    clusters_centroids: Option<Result<Arc<HashMap<i32, Array1<f64>>>, CalcError>>,
     sender: Sender<'a, CalinskiHarabaszIndexValue>,
 }
 
@@ -60,7 +60,7 @@ impl<'a> Node<'a> {
                 Ok((((x, _), cls), cls_ctrds)) => self.index.compute(x, cls_ctrds, cls),
                 Err(err) => Err(err),
             };
-            self.sender.send_to_subscribers(Arc::new(res));
+            self.sender.send_to_subscribers(res);
             self.raw_data = None;
             self.clusters = None;
             self.clusters_centroids = None;
@@ -68,7 +68,7 @@ impl<'a> Node<'a> {
     }
     pub fn new(sender: Sender<'a, CalinskiHarabaszIndexValue>) -> Self {
         Self {
-            index: Index::default(),
+            index: Index,
             raw_data: None,
             clusters_centroids: None,
             clusters: None,
@@ -77,23 +77,23 @@ impl<'a> Node<'a> {
     }
 }
 
-impl<'a> Subscriber<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>)> for Node<'a> {
+impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for Node<'a> {
     fn recieve_data(
         &mut self,
-        data: Arc<Result<(&'a ArrayView2<'a, f64>, &'a ArrayView1<'a, i32>), CalcError>>,
+        data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
     ) {
         self.raw_data = Some(data);
         self.process_when_ready();
     }
 }
-impl<'a> Subscriber<HashMap<i32, Array1<usize>>> for Node<'a> {
-    fn recieve_data(&mut self, data: Arc<Result<HashMap<i32, Array1<usize>>, CalcError>>) {
+impl<'a> Subscriber<Arc<HashMap<i32, Array1<usize>>>> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<Arc<HashMap<i32, Array1<usize>>>, CalcError>) {
         self.clusters = Some(data);
         self.process_when_ready();
     }
 }
-impl<'a> Subscriber<HashMap<i32, Array1<f64>>> for Node<'a> {
-    fn recieve_data(&mut self, data: Arc<Result<HashMap<i32, Array1<f64>>, CalcError>>) {
+impl<'a> Subscriber<Arc<HashMap<i32, Array1<f64>>>> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<Arc<HashMap<i32, Array1<f64>>>, CalcError>) {
         self.clusters_centroids = Some(data);
         self.process_when_ready();
     }

@@ -22,6 +22,11 @@ mod rust_ext {
         pub calinski_harabasz: bool,
         pub dunn: bool,
         pub silhoutte: bool,
+        pub rubin: bool,
+        pub mariott: bool,
+        pub scott: bool,
+        pub friedman: bool,
+        pub tau: bool,
     }
     #[pymethods]
     impl IndexTreeConfig {
@@ -33,6 +38,11 @@ mod rust_ext {
             calinski_harabasz: bool,
             dunn: bool,
             silhoutte: bool,
+            rubin: bool,
+            mariott: bool,
+            scott: bool,
+            friedman: bool,
+            tau: bool,
         ) -> Self {
             Self {
                 ball_hall,
@@ -41,6 +51,11 @@ mod rust_ext {
                 dunn,
                 calinski_harabasz,
                 silhoutte,
+                rubin,
+                mariott,
+                scott,
+                friedman,
+                tau,
             }
         }
     }
@@ -66,6 +81,36 @@ mod rust_ext {
             let mut builder = IndexTreeBuilder::default();
             if config.ball_hall {
                 builder = builder.add_ball_hall();
+            }
+            if config.davies_bouldin {
+                builder = builder.add_davies_bouldin();
+            }
+            if config.silhoutte {
+                builder = builder.add_silhoutte();
+            }
+            if config.c_index {
+                builder = builder.add_c_index();
+            }
+            if config.dunn {
+                builder = builder.add_dunn();
+            }
+            if config.calinski_harabasz {
+                builder = builder.add_calinski_harabasz();
+            }
+            if config.rubin {
+                builder = builder.add_rubin();
+            }
+            if config.mariott {
+                builder = builder.add_mariott();
+            }
+            if config.scott {
+                builder = builder.add_scott();
+            }
+            if config.friedman {
+                builder = builder.add_friedman();
+            }
+            if config.tau {
+                builder = builder.add_tau();
             }
             builder.finish()
         };
