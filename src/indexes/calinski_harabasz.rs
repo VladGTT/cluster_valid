@@ -17,7 +17,7 @@ impl Index {
 
         clusters_centroids: &HashMap<i32, Array1<f64>>,
         clusters: &HashMap<i32, Array1<usize>>,
-    ) -> Result<CalinskiHarabaszIndexValue, CalcError> {
+    ) -> Result<f64, CalcError> {
         let number_of_objects = x.nrows() as f64;
         let data_center = x.mean_axis(Axis(0)).ok_or("Cant calc data centroid")?;
         let number_of_clusters = clusters.keys().len() as f64;
@@ -38,7 +38,7 @@ impl Index {
         let val = (inbetween_group_dispersion / (number_of_clusters - 1.0))
             / (within_group_dispersion / (number_of_objects - number_of_clusters));
 
-        Ok(CalinskiHarabaszIndexValue { val })
+        Ok(val)
     }
 }
 pub struct Node<'a> {
@@ -57,7 +57,10 @@ impl<'a> Node<'a> {
             self.clusters_centroids.as_ref(),
         ) {
             let res = match raw_data.combine(clusters).combine(clusters_centroids) {
-                Ok((((x, _), cls), cls_ctrds)) => self.index.compute(x, cls_ctrds, cls),
+                Ok((((x, _), cls), cls_ctrds)) => self
+                    .index
+                    .compute(x, cls_ctrds, cls)
+                    .map(|val| CalinskiHarabaszIndexValue { val }),
                 Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(res);

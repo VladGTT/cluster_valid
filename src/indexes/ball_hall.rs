@@ -16,7 +16,7 @@ impl Index {
         x: &ArrayView2<f64>,
         clusters_centroids: &HashMap<i32, Array1<f64>>,
         clusters: &HashMap<i32, Array1<usize>>,
-    ) -> Result<BallHallIndexValue, CalcError> {
+    ) -> Result<f64, CalcError> {
         let std = clusters
             .par_iter()
             .map(|(c, arr)| {
@@ -27,7 +27,7 @@ impl Index {
             })
             .sum::<f64>();
         let val = std / (clusters.keys().len() as f64);
-        Ok(BallHallIndexValue { val })
+        Ok(val)
     }
 }
 
@@ -47,7 +47,10 @@ impl<'a> Node<'a> {
             self.clusters_centroids.as_ref(),
         ) {
             let res = match raw_data.combine(clusters).combine(clusters_centroids) {
-                Ok((((x, _), cls), cls_ctrds)) => self.index.compute(x, cls_ctrds, cls),
+                Ok((((x, _), cls), cls_ctrds)) => self
+                    .index
+                    .compute(x, cls_ctrds, cls)
+                    .map(|val| BallHallIndexValue { val }),
                 Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(res);

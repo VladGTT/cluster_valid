@@ -17,6 +17,7 @@ impl Index {
         y: &ArrayView1<i32>,
         pairs_and_distances: &(Vec<i8>, Vec<f64>),
     ) -> Result<f64, CalcError> {
+        // return Err(CalcError::from(format!("{pairs_and_distances:?}")));
         let (pairs_in_the_same_cluster, distances) = pairs_and_distances;
         let total_number_of_pairs = pairs_in_the_same_cluster.len();
         let (mut s_plus, mut s_minus): (usize, usize) = (0, 0);
@@ -25,14 +26,16 @@ impl Index {
         // which belong to the same cluster is strictly smaller than the distance between two points not belonging to the same cluster
         // and s_minus which represents the number of times distance between two points lying in the same cluster  is strictly greater than a distance between two points not
         // belonging to the same cluster
-        for (i, (d1, b1)) in zip(distances, pairs_in_the_same_cluster).enumerate() {
-            for (j, (d2, b2)) in zip(distances, pairs_in_the_same_cluster).enumerate() {
-                if i < j && *b1 == 0 && *b2 == 1 {
-                    s_plus += (d1 < d2) as u8 as usize;
-                    s_minus += (d1 > d2) as u8 as usize;
-                }
+
+        for (d1, _) in zip(distances, pairs_in_the_same_cluster).filter(|(_, p)| **p == 0) {
+            let mut is_smaller = true;
+            for (d2, _) in zip(distances, pairs_in_the_same_cluster).filter(|(_, p)| **p == 1) {
+                is_smaller &= d2 < d1;
             }
+            s_plus += is_smaller as usize;
+            s_minus += !is_smaller as usize;
         }
+        // return Err(CalcError::from(format!("s+ {s_plus} s- {s_minus}")));
         let nw: usize = pairs_in_the_same_cluster
             .iter()
             .filter(|i| **i == 1)

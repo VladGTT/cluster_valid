@@ -12,11 +12,7 @@ pub struct CIndexValue {
 pub struct Index;
 
 impl Index {
-    pub fn compute(
-        &self,
-        x: &ArrayView2<f64>,
-        y: &ArrayView1<i32>,
-    ) -> Result<CIndexValue, CalcError> {
+    pub fn compute(&self, x: &ArrayView2<f64>, y: &ArrayView1<i32>) -> Result<f64, CalcError> {
         //calculating Nw  -- total number of pairs of observations belonging to the same cluster
         let counts = y
             .iter()
@@ -65,7 +61,7 @@ impl Index {
         //calculating c_index value
         let val = (sum_of_withincluster_distances - sum_of_minimum_distances)
             / (sum_of_maximum_distances - sum_of_minimum_distances);
-        Ok(CIndexValue { val })
+        Ok(val)
     }
 }
 
@@ -89,7 +85,7 @@ impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for Node<'a> {
         data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
     ) {
         let res = match data.as_ref() {
-            Ok((x, y)) => self.index.compute(x, y),
+            Ok((x, y)) => self.index.compute(x, y).map(|val| CIndexValue { val }),
             Err(err) => Err(err.clone()),
         };
         self.sender.send_to_subscribers(res);

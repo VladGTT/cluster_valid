@@ -17,7 +17,7 @@ impl Index {
         x: &ArrayView2<f64>,
         y: &ArrayView1<i32>,
         clusters_centroids: &HashMap<i32, Array1<f64>>,
-    ) -> Result<RubinIndexValue, CalcError> {
+    ) -> Result<f64, CalcError> {
         // let cluster_centroids = calc_clusters_centers(&calc_clusters(&y), &x);
         let x_mean = x.mean_axis(Axis(0)).ok_or("Cant calc mean")?;
         let mut diffs1: Array2<f64> = Array2::zeros(x.dim());
@@ -35,7 +35,7 @@ impl Index {
         // let det_w_q = calc_matrix_determinant(&w_q.view())?;
         let val = det_t / det_w_q;
 
-        Ok(RubinIndexValue { val })
+        Ok(val)
     }
 }
 
@@ -60,7 +60,10 @@ impl<'a> Node<'a> {
             (self.raw_data.as_ref(), self.clusters_centroids.as_ref())
         {
             let res = match raw_data.combine(clusters_centroids) {
-                Ok(((x, y), cls_ctrds)) => self.index.compute(x, y, cls_ctrds),
+                Ok(((x, y), cls_ctrds)) => self
+                    .index
+                    .compute(x, y, cls_ctrds)
+                    .map(|val| RubinIndexValue { val }),
                 Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(res);

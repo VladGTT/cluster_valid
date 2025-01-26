@@ -18,7 +18,7 @@ impl Index {
         x: &ArrayView2<f64>,
         clusters_centroids: &HashMap<i32, Array1<f64>>,
         clusters: &HashMap<i32, Array1<usize>>,
-    ) -> Result<DaviesBouldinIndexValue, CalcError> {
+    ) -> Result<f64, CalcError> {
         let mut stor: HashMap<i32, f64> = HashMap::default();
 
         for (c, arr) in clusters.iter() {
@@ -52,7 +52,7 @@ impl Index {
         }
 
         let val = acum / q as f64;
-        Ok(DaviesBouldinIndexValue { val })
+        Ok(val)
     }
 }
 
@@ -72,7 +72,10 @@ impl<'a> Node<'a> {
             self.clusters_centroids.as_ref(),
         ) {
             let res = match raw_data.combine(clusters).combine(clusters_centroids) {
-                Ok((((x, _), cls), cls_ctrds)) => self.index.compute(x, cls_ctrds, cls),
+                Ok((((x, _), cls), cls_ctrds)) => self
+                    .index
+                    .compute(x, cls_ctrds, cls)
+                    .map(|val| DaviesBouldinIndexValue { val }),
                 Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(res);

@@ -17,7 +17,7 @@ impl Index {
         x: &ArrayView2<f64>,
         y: &ArrayView1<i32>,
         clusters_centroids: &HashMap<i32, Array1<f64>>,
-    ) -> Result<MariottIndexValue, CalcError> {
+    ) -> Result<f64, CalcError> {
         let mut diffs: Array2<f64> = Array2::zeros(x.dim());
         for (i, (x, y)) in zip(x.rows(), y).enumerate() {
             diffs.row_mut(i).assign(&(&x - &clusters_centroids[y]));
@@ -27,7 +27,7 @@ impl Index {
         let det_w_q = Determinant::det(&w_q).map_err(|e| CalcError::from(format!("{e:?}")))?;
         let q = clusters_centroids.keys().len() as f64;
         let val = q.powi(2) * det_w_q;
-        Ok(MariottIndexValue { val })
+        Ok(val)
     }
 }
 
@@ -52,7 +52,10 @@ impl<'a> Node<'a> {
             (self.raw_data.as_ref(), self.clusters_centroids.as_ref())
         {
             let res = match raw_data.combine(clusters_centroids) {
-                Ok(((x, y), cls_ctrds)) => self.index.compute(x, y, cls_ctrds),
+                Ok(((x, y), cls_ctrds)) => self
+                    .index
+                    .compute(x, y, cls_ctrds)
+                    .map(|val| MariottIndexValue { val }),
                 Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(res);

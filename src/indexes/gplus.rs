@@ -1,14 +1,22 @@
-use super::*;
-use helpers::{pairs_and_distances::PairsAndDistancesType, raw_data::RawDataType};
+use crate::calc_error::{CalcError, CombineErrors};
+use ndarray::{ArrayView1, ArrayView2};
+use std::{iter::zip, sync::Arc};
+
+use crate::sender::{Sender, Subscriber};
+
+#[derive(Clone, Copy, Debug)]
+pub struct GplusIndexValue {
+    pub val: f64,
+}
 #[derive(Default)]
 pub struct Index;
 impl Index {
     fn compute(
         &self,
         x: &ArrayView2<f64>,
-        distances: &Vec<f64>,
-        pairs_in_the_same_cluster: &Vec<i8>,
+        pairs_and_distances: &(Vec<i8>, Vec<f64>),
     ) -> Result<f64, CalcError> {
+        let (pairs_in_the_same_cluster, distances) = pairs_and_distances;
         let mut s_minus = 0.0;
 
         // finding s_plus which represents the number of times a distance between two points
@@ -30,34 +38,53 @@ impl Index {
         Ok(value)
     }
 }
-#[derive(Default)]
+
 pub struct Node<'a> {
     index: Index,
-
-    raw_data: Option<RawDataType<'a>>,
-    pairs_and_distances: Option<PairsAndDistancesType>,
-    pub res: Option<Result<f64, CalcError>>,
+    raw_data: Option<Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>>,
+    pairs_and_distances: Option<Result<Arc<(Vec<i8>, Vec<f64>)>, CalcError>>,
+    sender: Sender<'a, GplusIndexValue>,
 }
 
 impl<'a> Node<'a> {
     fn process_when_ready(&mut self) {
-        if let (Some((x, _)), Some((pairs, distances))) =
+        if let (Some(raw_data), Some(pairs_and_distances)) =
             (self.raw_data.as_ref(), self.pairs_and_distances.as_ref())
         {
-            self.res = Some(self.index.compute(x, distances, pairs));
+            let res = match raw_data.combine(pairs_and_distances) {
+                Ok(((x, _), pairs_and_distances)) => self
+                    .index
+                    .compute(x, pairs_and_distances)
+                    .map(|val| GplusIndexValue { val }),
+                Err(err) => Err(err),
+            };
+            self.sender.send_to_subscribers(res);
+            self.raw_data = None;
+            self.pairs_and_distances = None;
+        }
+    }
+    pub fn new(sender: Sender<'a, GplusIndexValue>) -> Self {
+        Self {
+            index: Index,
+            raw_data: None,
+            pairs_and_distances: None,
+            sender,
         }
     }
 }
 
-impl<'a> Subscriber<PairsAndDistancesType> for Node<'a> {
-    fn recieve_data(&mut self, data: &PairsAndDistancesType) {
-        self.pairs_and_distances = Some(data.clone());
+impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for Node<'a> {
+    fn recieve_data(
+        &mut self,
+        data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
+    ) {
+        self.raw_data = Some(data);
         self.process_when_ready();
     }
 }
-impl<'a> Subscriber<RawDataType<'a>> for Node<'a> {
-    fn recieve_data(&mut self, data: &RawDataType<'a>) {
-        self.raw_data = Some(*data);
+impl<'a> Subscriber<Arc<(Vec<i8>, Vec<f64>)>> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<Arc<(Vec<i8>, Vec<f64>)>, CalcError>) {
+        self.pairs_and_distances = Some(data);
         self.process_when_ready();
     }
 }

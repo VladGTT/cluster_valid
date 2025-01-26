@@ -11,6 +11,7 @@ mod rust_ext {
     use super::*;
     use core::f64;
     use index_tree::{IndexTreeBuilder, IndexTreeReturnValue};
+    use indexes::ptbiserial;
     use numpy::{npyffi::npy_int32, PyReadonlyArray1, PyReadonlyArray2};
 
     #[pyclass(frozen)]
@@ -21,12 +22,17 @@ mod rust_ext {
         pub c_index: bool,
         pub calinski_harabasz: bool,
         pub dunn: bool,
-        pub silhoutte: bool,
+        pub silhouette: bool,
         pub rubin: bool,
         pub mariott: bool,
         pub scott: bool,
         pub friedman: bool,
         pub tau: bool,
+        pub gamma: bool,
+        pub gplus: bool,
+        pub tracew: bool,
+        pub mcclain: bool,
+        pub ptbiserial: bool,
     }
     #[pymethods]
     impl IndexTreeConfig {
@@ -37,12 +43,17 @@ mod rust_ext {
             c_index: bool,
             calinski_harabasz: bool,
             dunn: bool,
-            silhoutte: bool,
+            silhouette: bool,
             rubin: bool,
             mariott: bool,
             scott: bool,
             friedman: bool,
             tau: bool,
+            gamma: bool,
+            gplus: bool,
+            tracew: bool,
+            mcclain: bool,
+            ptbiserial: bool,
         ) -> Self {
             Self {
                 ball_hall,
@@ -50,12 +61,17 @@ mod rust_ext {
                 c_index,
                 dunn,
                 calinski_harabasz,
-                silhoutte,
+                silhouette,
                 rubin,
                 mariott,
                 scott,
                 friedman,
                 tau,
+                gamma,
+                gplus,
+                tracew,
+                mcclain,
+                ptbiserial,
             }
         }
     }
@@ -85,8 +101,8 @@ mod rust_ext {
             if config.davies_bouldin {
                 builder = builder.add_davies_bouldin();
             }
-            if config.silhoutte {
-                builder = builder.add_silhoutte();
+            if config.silhouette {
+                builder = builder.add_silhouette();
             }
             if config.c_index {
                 builder = builder.add_c_index();
@@ -111,6 +127,21 @@ mod rust_ext {
             }
             if config.tau {
                 builder = builder.add_tau();
+            }
+            if config.gamma {
+                builder = builder.add_gamma();
+            }
+            if config.gplus {
+                builder = builder.add_gplus();
+            }
+            if config.tracew {
+                builder = builder.add_tracew();
+            }
+            if config.mcclain {
+                builder = builder.add_mcclain();
+            }
+            if config.ptbiserial {
+                builder = builder.add_ptbiserial();
             }
             builder.finish()
         };

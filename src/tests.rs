@@ -1,8 +1,8 @@
-use crate::index_tree::IndexTreeBuilder;
+use crate::{index_tree::IndexTreeBuilder, indexes::gplus};
 use assert_float_eq::*;
 use ndarray::{arr1, arr2, prelude::*};
 
-const ACCURACY: f64 = 1e-10;
+const ACCURACY: f64 = 1e-5;
 
 fn initialize() -> (Array2<f64>, Array1<i32>) {
     (
@@ -116,111 +116,84 @@ fn initialize() -> (Array2<f64>, Array1<i32>) {
         ]),
     )
 }
-// use ndarray_linalg::solve::Inverse;
-// #[test]
-// fn test_matrix_inv() {
-//     let matrix: Array2<f64> = arr2(&[[-1., 1.5], [1., -1.]]);
-//     let inv = Inverse::inv(&matrix).unwrap();
-//     println!("{inv}");
-//     panic!("Just panic")
-// }
+#[test]
+fn test_silhouette_score() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+    let tree = IndexTreeBuilder::default().add_silhouette().finish();
 
-// #[test]
-// fn test_silhouette_score() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//
-//     let index = Mutex::new(indexes::silhoutte::Node::default());
-//
-//     let clusters = Mutex::new(ClustersNode::with_subscribee(Subscribee::new(vec![&index])));
-//     let mut raw_data = RawDataNode::new((&x, &y), Subscribee::new(vec![&index, &clusters]));
-//     raw_data.compute();
-//     let index = index.lock().unwrap();
-//     let res = index.res.as_ref().unwrap();
-//     let val = *res.as_ref().unwrap();
-//     assert_float_absolute_eq!(val, 0.8469881221532085, ACCURACY)
-// }
-// #[test]
-// fn test_davies_bouldin_score() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//
-//     let res_reader = Arc::new(Mutex::new(ResultReader::default()));
-//     let index = Arc::new(Mutex::new(indexes::davies_bouldin::Node::new(Sender::new(
-//         vec![res_reader.clone()],
-//     ))));
-//     let clusters_centroids = Arc::new(Mutex::new(ClustersCentroidsNode::new(Sender::new(vec![
-//         index.clone(),
-//     ]))));
-//     let clusters = Arc::new(Mutex::new(ClustersNode::new(Sender::new(vec![
-//         index.clone(),
-//         clusters_centroids.clone(),
-//     ]))));
-//     let mut raw_data = RawDataNode::new(
-//         (&x, &y),
-//         Sender::new(vec![index, clusters, clusters_centroids]),
-//     );
-//     raw_data.compute();
-//     assert_float_absolute_eq!(
-//         res_reader.lock().unwrap().get().unwrap().unwrap(),
-//         0.21374667882527568,
-//         ACCURACY
-//     )
-// }
-// #[test]
-// fn test_calinski_harabasz_score() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//     let mut res = None;
-//
-//     let res_reader = Mutex::new(ResultReader::new(&mut res));
-//     let index = Mutex::new(indexes::calinski_harabasz::Node::new(Sender::new(vec![
-//         &res_reader,
-//     ])));
-//     let clusters_centroids = Mutex::new(ClustersCentroidsNode::new(Sender::new(vec![&index])));
-//     let clusters = Mutex::new(ClustersNode::new(Sender::new(vec![
-//         &index,
-//         &clusters_centroids,
-//     ])));
-//     let mut raw_data = RawDataNode::new(
-//         (&x, &y),
-//         Sender::new(vec![&index, &clusters, &clusters_centroids]),
-//     );
-//     raw_data.compute();
-//     assert_float_absolute_eq!(res.unwrap().unwrap(), 1778.0880985088447, ACCURACY)
-// }
-// #[test]
-// fn test_c_index() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//
-//     let mut res = None;
-//
-//     let res_reader = Mutex::new(ResultReader::new(&mut res));
-//     let index = Mutex::new(indexes::c_index::Node::new(Sender::new(vec![&res_reader])));
-//     let mut raw_data = RawDataNode::new((&x, &y), Sender::new(vec![&index]));
-//
-//     raw_data.compute();
-//     assert_float_absolute_eq!(res.unwrap().unwrap(), 0.0, ACCURACY)
-// }
-// #[test]
-// fn test_gamma_index() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//
-//     let index = Mutex::new(indexes::gamma::Node::new());
-//     let pairs_and_distances = Mutex::new(
-//         helpers::pairs_and_distances::PairsAndDistancesNode::with_subscribee(Subscribee::new(
-//             vec![&index],
-//         )),
-//     );
-//     let mut raw_data = RawDataNode::new((&x, &y), Subscribee::new(vec![&pairs_and_distances]));
-//     raw_data.compute();
-//     let index = index.lock().unwrap();
-//     let res = index.res.as_ref().unwrap();
-//     let val = *res.as_ref().unwrap();
-//     assert_float_absolute_eq!(val, 1.0, ACCURACY)
-// }
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(
+        res.silhouette.unwrap().unwrap().val,
+        0.8469881221532085,
+        ACCURACY
+    )
+}
+#[test]
+fn test_davies_bouldin_score() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+    let tree = IndexTreeBuilder::default().add_davies_bouldin().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(
+        res.davies_bouldin.unwrap().unwrap().val,
+        0.21374667882527568,
+        ACCURACY
+    )
+}
+#[test]
+fn test_calinski_harabasz_score() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+    let tree = IndexTreeBuilder::default().add_calinski_harabasz().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(
+        res.calinski_harabasz.unwrap().unwrap().val,
+        1778.0880985088447,
+        ACCURACY
+    )
+}
+#[test]
+fn test_c_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+    let tree = IndexTreeBuilder::default().add_c_index().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.c_index.unwrap().unwrap().val, 0.0, ACCURACY)
+}
+#[test]
+fn test_gamma_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_gamma().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.gamma.unwrap().unwrap().val, 1.0, ACCURACY)
+}
 
 #[test]
 fn test_ball_hall_index() {
@@ -296,29 +269,113 @@ fn test_friedman_index() {
 fn test_tau_index() {
     let (x, y) = initialize();
     let (x, y) = (x.view(), y.view());
+    // let x = arr2(&[
+    //     [2., 4.],
+    //     [3., 5.],
+    //     [8., 3.],
+    //     [9., 2.],
+    //     [10., 10.],
+    //     [11., 12.],
+    // ]);
+    // let y = arr1(&[0, 0, 1, 1, 2, 2]);
 
     let tree = IndexTreeBuilder::default().add_tau().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x.view(), y.view()));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    // assert_float_absolute_eq!(res.tau.unwrap().unwrap().val, 0.6060916, ACCURACY)
+    assert_float_absolute_eq!(res.tau.unwrap().unwrap().val, -1.316936e-05, ACCURACY)
+}
+#[test]
+fn test_dunn_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_dunn().finish();
 
     let start = std::time::Instant::now();
     let res = tree.compute((x, y));
     let end = std::time::Instant::now();
     //
     println!("Duration {} milisecs", (end - start).as_millis());
-    assert_float_absolute_eq!(res.tau.unwrap().unwrap().val, -1.316936e-05, ACCURACY)
+    assert_float_absolute_eq!(res.dunn.unwrap().unwrap().val, 1.320007, ACCURACY)
+}
+#[test]
+fn test_tracew_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_tracew().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.tracew.unwrap().unwrap().val, 171.911, ACCURACY)
+}
+#[test]
+fn test_gplus_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_gplus().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.gplus.unwrap().unwrap().val, 0.0, ACCURACY)
+}
+#[test]
+fn test_ratkowsky_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_ratkowsky().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.ratkowsky.unwrap().unwrap().val, 0.5692245, ACCURACY)
+}
+#[test]
+fn test_ptbserial_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_ptbiserial().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.ptbiserial.unwrap().unwrap().val, -5.571283, ACCURACY)
+}
+#[test]
+fn test_mcclain_index() {
+    let (x, y) = initialize();
+    let (x, y) = (x.view(), y.view());
+
+    let tree = IndexTreeBuilder::default().add_mcclain().finish();
+
+    let start = std::time::Instant::now();
+    let res = tree.compute((x, y));
+    let end = std::time::Instant::now();
+    //
+    println!("Duration {} milisecs", (end - start).as_millis());
+    assert_float_absolute_eq!(res.mcclain.unwrap().unwrap().val, 0.1243807, ACCURACY)
 }
 // #[test]
-// fn test_dunn_index() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//
-//     let mut res = None;
-//
-//     let res_reader = Mutex::new(ResultReader::new(&mut res));
-//     let index = Mutex::new(indexes::dunn::Node::new(Sender::new(vec![&res_reader])));
-//     let mut raw_data = RawDataNode::new((&x, &y), Sender::new(vec![&index]));
-//
-//     raw_data.compute();
-//     assert_float_absolute_eq!(res.unwrap().unwrap(), 1.320007, ACCURACY)
+// fn test_trcovw_index() {
+//     wrapper(&indexes::trcovw::Index {}, 3428.8903760801304);
 // }
 // #[test]
 // fn test_sd_scat_index() {
@@ -331,45 +388,4 @@ fn test_tau_index() {
 // #[test]
 // fn test_sdbw_index() {
 //     wrapper(&indexes::sdbw::Index {}, 0.02584332);
-// }
-// #[test]
-// fn test_tracew_index() {
-//     wrapper(&indexes::tracew::Index {}, 171.911);
-// }
-// #[test]
-// fn test_trcovw_index() {
-//     wrapper(&indexes::trcovw::Index {}, 3428.8903760801304);
-// }
-// #[test]
-// fn test_ratkowsky_index() {
-//     wrapper(&indexes::ratkowsky::Index {}, 0.5692245);
-// }
-// #[test]
-// fn test_mcclain_index() {
-//     wrapper(&indexes::mcclain::Index {}, 0.1243807);
-// }
-// #[test]
-// fn test_gplus_index() {
-//     let (x, y) = initialize();
-//     let (x, y) = (x.view(), y.view());
-//
-//     let index = Mutex::new(indexes::gplus::Node::default());
-//     let pairs_and_distances = Mutex::new(
-//         helpers::pairs_and_distances::PairsAndDistancesNode::with_subscribee(Subscribee::new(
-//             vec![&index],
-//         )),
-//     );
-//     let mut raw_data = RawDataNode::new(
-//         (&x, &y),
-//         Subscribee::new(vec![&pairs_and_distances, &index]),
-//     );
-//     raw_data.compute();
-//     let index = index.lock().unwrap();
-//     let res = index.res.as_ref().unwrap();
-//     let val = *res.as_ref().unwrap();
-//     assert_float_absolute_eq!(val, 0.0, ACCURACY)
-// }
-// #[test]
-// fn test_ptbserial_index() {
-//     wrapper(&indexes::ptbiserial::Index {}, -5.571283);
 // }

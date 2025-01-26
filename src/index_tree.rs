@@ -4,11 +4,17 @@ use crate::indexes::calinski_harabasz::CalinskiHarabaszIndexValue;
 use crate::indexes::davies_bouldin::DaviesBouldinIndexValue;
 use crate::indexes::dunn::DunnIndexValue;
 use crate::indexes::friedman::FriedmanIndexValue;
+use crate::indexes::gamma::GammaIndexValue;
+use crate::indexes::gplus::GplusIndexValue;
 use crate::indexes::mariott::MariottIndexValue;
+use crate::indexes::mcclain::McclainIndexValue;
+use crate::indexes::ptbiserial::PtbiserialIndexValue;
+use crate::indexes::ratkowsky::RatkowskyIndexValue;
 use crate::indexes::rubin::RubinIndexValue;
 use crate::indexes::scott::ScottIndexValue;
-use crate::indexes::silhoutte::SilhoutteIndexValue;
+use crate::indexes::silhouette::SilhouetteIndexValue;
 use crate::indexes::tau::TauIndexValue;
+use crate::indexes::tracew::TracewIndexValue;
 
 use crate::{
     calc_error::CalcError,
@@ -19,15 +25,21 @@ use crate::{
         davies_bouldin::Node as DaviesBouldinNode,
         dunn::Node as DunnNode,
         friedman::Node as FriedmanNode,
+        gamma::Node as GammaNode,
+        gplus::Node as GplusNode,
         helpers::{
             clusters::ClustersNode, clusters_centroids::ClustersCentroidsNode,
             pairs_and_distances::PairsAndDistancesNode, raw_data::RawDataNode,
         },
         mariott::Node as MariottNode,
+        mcclain::Node as McclainNode,
+        ptbiserial::Node as PtbiserialNode,
+        ratkowsky::Node as RatkowskyNode,
         rubin::Node as RubinNode,
         scott::Node as ScottNode,
-        silhoutte::Node as SilHoutteNode,
+        silhouette::Node as SilhouetteNode,
         tau::Node as TauNode,
+        tracew::Node as TracewNode,
     },
     sender::{Sender, Subscriber},
 };
@@ -46,12 +58,18 @@ pub struct IndexTreeReturnValue {
     pub c_index: Option<Result<CIndexValue, CalcError>>,
     pub calinski_harabasz: Option<Result<CalinskiHarabaszIndexValue, CalcError>>,
     pub dunn: Option<Result<DunnIndexValue, CalcError>>,
-    pub silhoutte: Option<Result<SilhoutteIndexValue, CalcError>>,
+    pub silhouette: Option<Result<SilhouetteIndexValue, CalcError>>,
     pub rubin: Option<Result<RubinIndexValue, CalcError>>,
     pub mariott: Option<Result<MariottIndexValue, CalcError>>,
     pub scott: Option<Result<ScottIndexValue, CalcError>>,
     pub friedman: Option<Result<FriedmanIndexValue, CalcError>>,
     pub tau: Option<Result<TauIndexValue, CalcError>>,
+    pub gamma: Option<Result<GammaIndexValue, CalcError>>,
+    pub gplus: Option<Result<GplusIndexValue, CalcError>>,
+    pub tracew: Option<Result<TracewIndexValue, CalcError>>,
+    pub mcclain: Option<Result<McclainIndexValue, CalcError>>,
+    pub ptbiserial: Option<Result<PtbiserialIndexValue, CalcError>>,
+    pub ratkowsky: Option<Result<RatkowskyIndexValue, CalcError>>,
 }
 
 #[pymethods]
@@ -83,8 +101,11 @@ impl IndexTreeReturnValue {
         self.dunn.clone().map(|f| f.map(|v| v.val)).transpose()
     }
     #[getter]
-    fn get_silhoutte(&self) -> Result<Option<f64>, CalcError> {
-        self.silhoutte.clone().map(|f| f.map(|v| v.val)).transpose()
+    fn get_silhouette(&self) -> Result<Option<f64>, CalcError> {
+        self.silhouette
+            .clone()
+            .map(|f| f.map(|v| v.val))
+            .transpose()
     }
     #[getter]
     fn get_rubin(&self) -> Result<Option<f64>, CalcError> {
@@ -105,6 +126,33 @@ impl IndexTreeReturnValue {
     #[getter]
     fn get_tau(&self) -> Result<Option<f64>, CalcError> {
         self.friedman.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
+    #[getter]
+    fn get_gamma(&self) -> Result<Option<f64>, CalcError> {
+        self.gamma.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
+    #[getter]
+    fn get_gplus(&self) -> Result<Option<f64>, CalcError> {
+        self.gplus.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
+    #[getter]
+    fn get_tracew(&self) -> Result<Option<f64>, CalcError> {
+        self.tracew.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
+    #[getter]
+    fn get_mcclain(&self) -> Result<Option<f64>, CalcError> {
+        self.mcclain.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
+    #[getter]
+    fn get_ptbiserial(&self) -> Result<Option<f64>, CalcError> {
+        self.ptbiserial
+            .clone()
+            .map(|f| f.map(|v| v.val))
+            .transpose()
+    }
+    #[getter]
+    fn get_ratkowsky(&self) -> Result<Option<f64>, CalcError> {
+        self.ratkowsky.clone().map(|f| f.map(|v| v.val)).transpose()
     }
 }
 
@@ -134,9 +182,9 @@ impl Subscriber<DunnIndexValue> for IndexTreeReturnValue {
         self.dunn = Some(data);
     }
 }
-impl Subscriber<SilhoutteIndexValue> for IndexTreeReturnValue {
-    fn recieve_data(&mut self, data: Result<SilhoutteIndexValue, CalcError>) {
-        self.silhoutte = Some(data);
+impl Subscriber<SilhouetteIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<SilhouetteIndexValue, CalcError>) {
+        self.silhouette = Some(data);
     }
 }
 impl Subscriber<RubinIndexValue> for IndexTreeReturnValue {
@@ -162,6 +210,36 @@ impl Subscriber<FriedmanIndexValue> for IndexTreeReturnValue {
 impl Subscriber<TauIndexValue> for IndexTreeReturnValue {
     fn recieve_data(&mut self, data: Result<TauIndexValue, CalcError>) {
         self.tau = Some(data);
+    }
+}
+impl Subscriber<GammaIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<GammaIndexValue, CalcError>) {
+        self.gamma = Some(data);
+    }
+}
+impl Subscriber<GplusIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<GplusIndexValue, CalcError>) {
+        self.gplus = Some(data);
+    }
+}
+impl Subscriber<TracewIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<TracewIndexValue, CalcError>) {
+        self.tracew = Some(data);
+    }
+}
+impl Subscriber<McclainIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<McclainIndexValue, CalcError>) {
+        self.mcclain = Some(data);
+    }
+}
+impl Subscriber<PtbiserialIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<PtbiserialIndexValue, CalcError>) {
+        self.ptbiserial = Some(data);
+    }
+}
+impl Subscriber<RatkowskyIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<RatkowskyIndexValue, CalcError>) {
+        self.ratkowsky = Some(data);
     }
 }
 pub struct IndexTree<'a> {
@@ -198,12 +276,12 @@ impl<'a> IndexTreeBuilder<'a> {
             .add_subscriber(ball_hall.clone());
         self
     }
-    pub fn add_silhoutte(mut self) -> Self {
-        let silhoutte = Arc::new(Mutex::new(SilHoutteNode::new(Sender::new(vec![self
+    pub fn add_silhouette(mut self) -> Self {
+        let silhouette = Arc::new(Mutex::new(SilhouetteNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(silhoutte.clone());
-        self.clusters_sender.add_subscriber(silhoutte.clone());
+        self.raw_data_sender.add_subscriber(silhouette.clone());
+        self.clusters_sender.add_subscriber(silhouette.clone());
         self
     }
     pub fn add_davies_bouldin(mut self) -> Self {
@@ -290,6 +368,53 @@ impl<'a> IndexTreeBuilder<'a> {
         self.raw_data_sender.add_subscriber(tau.clone());
 
         self.pairs_and_distances_sender.add_subscriber(tau.clone());
+        self
+    }
+    pub fn add_gamma(mut self) -> Self {
+        let gamma = Arc::new(Mutex::new(GammaNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+        self.pairs_and_distances_sender.add_subscriber(gamma);
+        self
+    }
+    pub fn add_gplus(mut self) -> Self {
+        let gplus = Arc::new(Mutex::new(GplusNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+        self.raw_data_sender.add_subscriber(gplus.clone());
+        self.pairs_and_distances_sender.add_subscriber(gplus);
+        self
+    }
+    pub fn add_tracew(mut self) -> Self {
+        let tracew = Arc::new(Mutex::new(TracewNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+        self.raw_data_sender.add_subscriber(tracew.clone());
+        self.clusters_centroids_sender.add_subscriber(tracew);
+        self
+    }
+    pub fn add_mcclain(mut self) -> Self {
+        let mcclain = Arc::new(Mutex::new(McclainNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+        self.raw_data_sender.add_subscriber(mcclain);
+        self
+    }
+    pub fn add_ptbiserial(mut self) -> Self {
+        let ptbiserial = Arc::new(Mutex::new(PtbiserialNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+        self.raw_data_sender.add_subscriber(ptbiserial);
+        self
+    }
+    pub fn add_ratkowsky(mut self) -> Self {
+        let ratkowsky = Arc::new(Mutex::new(RatkowskyNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+        self.raw_data_sender.add_subscriber(ratkowsky.clone());
+
+        self.clusters_sender.add_subscriber(ratkowsky.clone());
+        self.clusters_centroids_sender.add_subscriber(ratkowsky);
         self
     }
     pub fn finish(mut self) -> IndexTree<'a> {

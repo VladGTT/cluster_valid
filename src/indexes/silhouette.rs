@@ -3,7 +3,7 @@ use crate::sender::{Sender, Subscriber};
 use ndarray::{Array1, ArrayView1, ArrayView2};
 use std::{collections::HashMap, sync::Arc};
 #[derive(Clone, Copy, Debug)]
-pub struct SilhoutteIndexValue {
+pub struct SilhouetteIndexValue {
     pub val: f64,
 }
 #[derive(Default)]
@@ -14,7 +14,7 @@ impl Index {
         &self,
         x: &ArrayView2<f64>,
         clusters: &HashMap<i32, Array1<usize>>,
-    ) -> Result<SilhoutteIndexValue, CalcError> {
+    ) -> Result<f64, CalcError> {
         let mut temp: Vec<f64> = Vec::with_capacity(clusters.keys().len() - 1);
         let mut stor: Vec<f64> = Vec::with_capacity(x.nrows());
         for (c, arr) in clusters.iter() {
@@ -51,7 +51,7 @@ impl Index {
             }
         }
         let val = Array1::from_vec(stor).mean().ok_or("Cant calc mean")?;
-        Ok(SilhoutteIndexValue { val })
+        Ok(val)
     }
 }
 
@@ -59,14 +59,17 @@ pub struct Node<'a> {
     index: Index,
     raw_data: Option<Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>>,
     clusters: Option<Result<Arc<HashMap<i32, Array1<usize>>>, CalcError>>,
-    sender: Sender<'a, SilhoutteIndexValue>,
+    sender: Sender<'a, SilhouetteIndexValue>,
 }
 
 impl<'a> Node<'a> {
     fn process_when_ready(&mut self) {
         if let (Some(raw_data), Some(clusters)) = (self.raw_data.as_ref(), self.clusters.as_ref()) {
             let res = match raw_data.combine(clusters) {
-                Ok(((x, _), cls)) => self.index.compute(x, cls),
+                Ok(((x, _), cls)) => self
+                    .index
+                    .compute(x, cls)
+                    .map(|val| SilhouetteIndexValue { val }),
                 Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(res);
@@ -74,7 +77,7 @@ impl<'a> Node<'a> {
             self.clusters = None;
         }
     }
-    pub fn new(sender: Sender<'a, SilhoutteIndexValue>) -> Self {
+    pub fn new(sender: Sender<'a, SilhouetteIndexValue>) -> Self {
         Self {
             index: Index::default(),
             raw_data: None,

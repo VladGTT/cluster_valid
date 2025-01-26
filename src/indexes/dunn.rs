@@ -11,11 +11,7 @@ pub struct DunnIndexValue {
 #[derive(Default)]
 pub struct Index;
 impl Index {
-    pub fn compute(
-        &self,
-        x: &ArrayView2<f64>,
-        y: &ArrayView1<i32>,
-    ) -> Result<DunnIndexValue, CalcError> {
+    pub fn compute(&self, x: &ArrayView2<f64>, y: &ArrayView1<i32>) -> Result<f64, CalcError> {
         let n = y.len() * (y.len() - 1) / 2;
         let mut intercluster_distances: Vec<f64> = Vec::with_capacity(n);
         let mut intracluster_distances: Vec<f64> = Vec::with_capacity(n);
@@ -43,7 +39,7 @@ impl Index {
             .ok_or("Can't find min intercluster distance")?;
 
         let val = min_intercluster / max_intracluster;
-        Ok(DunnIndexValue { val })
+        Ok(val)
     }
 }
 
@@ -67,7 +63,7 @@ impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for Node<'a> {
         data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
     ) {
         let res = match data.as_ref() {
-            Ok((x, y)) => self.index.compute(x, y),
+            Ok((x, y)) => self.index.compute(x, y).map(|val| DunnIndexValue { val }),
             Err(err) => Err(err.clone()),
         };
         self.sender.send_to_subscribers(res);

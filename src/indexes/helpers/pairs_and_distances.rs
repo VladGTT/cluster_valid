@@ -18,7 +18,7 @@ impl PairsAndDistances {
         for (i, (row1, cluster1)) in x.axis_iter(Axis(0)).zip(y).enumerate() {
             for (j, (row2, cluster2)) in x.axis_iter(Axis(0)).zip(y).enumerate() {
                 if i < j {
-                    pairs_in_the_same_cluster.push((cluster1 != cluster2) as i8); // the same cluster =producer 0, different = 1
+                    pairs_in_the_same_cluster.push((cluster1 == cluster2) as i8); // the same cluster =producer 1, different = 0
                     distances.push((&row2 - &row1).pow2().sum().sqrt());
                 }
             }
