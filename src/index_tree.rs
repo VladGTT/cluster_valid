@@ -6,15 +6,26 @@ use crate::indexes::dunn::DunnIndexValue;
 use crate::indexes::friedman::FriedmanIndexValue;
 use crate::indexes::gamma::GammaIndexValue;
 use crate::indexes::gplus::GplusIndexValue;
+use crate::indexes::helpers::s_plus_and_minus::SPlusAndMinusNode;
+use crate::indexes::helpers::scat::ScatValue;
+use crate::indexes::helpers::total_dispercion::TDValue;
+use crate::indexes::hubert::HubertIndexValue;
 use crate::indexes::mariott::MariottIndexValue;
 use crate::indexes::mcclain::McclainIndexValue;
 use crate::indexes::ptbiserial::PtbiserialIndexValue;
 use crate::indexes::ratkowsky::RatkowskyIndexValue;
 use crate::indexes::rubin::RubinIndexValue;
 use crate::indexes::scott::ScottIndexValue;
+use crate::indexes::sd::SDIndexValue;
+use crate::indexes::sdbw::SDBWIndexValue;
 use crate::indexes::silhouette::SilhouetteIndexValue;
 use crate::indexes::tau::TauIndexValue;
 use crate::indexes::tracew::TracewIndexValue;
+use crate::indexes::trcovw::TrcovwIndexValue;
+
+use crate::indexes::helpers::between_group_dispercion::BGDValue;
+use crate::indexes::helpers::clusters_centroids::ClustersCentroidsValue;
+use crate::indexes::helpers::within_group_dispercion::WGDValue;
 
 use crate::{
     calc_error::CalcError,
@@ -28,27 +39,29 @@ use crate::{
         gamma::Node as GammaNode,
         gplus::Node as GplusNode,
         helpers::{
-            clusters::ClustersNode, clusters_centroids::ClustersCentroidsNode,
-            pairs_and_distances::PairsAndDistancesNode, raw_data::RawDataNode,
+            between_group_dispercion::BGDNode, clusters_centroids::ClustersCentroidsNode,
+            counts::CountsNode, pairs_and_distances::PairsAndDistancesNode, raw_data::RawDataNode,
+            scat::Node as ScatNode, total_dispercion::TDNode, within_group_dispercion::WGDNode,
         },
+        hubert::Node as HubertNode,
         mariott::Node as MariottNode,
         mcclain::Node as McclainNode,
         ptbiserial::Node as PtbiserialNode,
         ratkowsky::Node as RatkowskyNode,
         rubin::Node as RubinNode,
         scott::Node as ScottNode,
+        sd::Node as SDNode,
+        sdbw::Node as SDBWNode,
         silhouette::Node as SilhouetteNode,
         tau::Node as TauNode,
         tracew::Node as TracewNode,
+        trcovw::Node as TrcovwNode,
     },
     sender::{Sender, Subscriber},
 };
-use ndarray::{Array1, ArrayView1, ArrayView2};
+use ndarray::{ArcArray1, ArrayView1, ArrayView2};
 use pyo3::{pyclass, pymethods};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 #[pyclass]
 #[derive(Default, Debug, Clone)]
@@ -70,6 +83,10 @@ pub struct IndexTreeReturnValue {
     pub mcclain: Option<Result<McclainIndexValue, CalcError>>,
     pub ptbiserial: Option<Result<PtbiserialIndexValue, CalcError>>,
     pub ratkowsky: Option<Result<RatkowskyIndexValue, CalcError>>,
+    pub trcovw: Option<Result<TrcovwIndexValue, CalcError>>,
+    pub hubert: Option<Result<HubertIndexValue, CalcError>>,
+    pub sd: Option<Result<SDIndexValue, CalcError>>,
+    pub sdbw: Option<Result<SDBWIndexValue, CalcError>>,
 }
 
 #[pymethods]
@@ -154,6 +171,22 @@ impl IndexTreeReturnValue {
     fn get_ratkowsky(&self) -> Result<Option<f64>, CalcError> {
         self.ratkowsky.clone().map(|f| f.map(|v| v.val)).transpose()
     }
+    #[getter]
+    fn get_trcovw(&self) -> Result<Option<f64>, CalcError> {
+        self.trcovw.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
+    #[getter]
+    fn get_hubertw(&self) -> Result<Option<f64>, CalcError> {
+        self.hubert.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
+    #[getter]
+    fn get_sd(&self) -> Result<Option<f64>, CalcError> {
+        self.sd.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
+    #[getter]
+    fn get_sdbw(&self) -> Result<Option<f64>, CalcError> {
+        self.sdbw.clone().map(|f| f.map(|v| v.val)).transpose()
+    }
 }
 
 impl Subscriber<BallHallIndexValue> for IndexTreeReturnValue {
@@ -161,7 +194,6 @@ impl Subscriber<BallHallIndexValue> for IndexTreeReturnValue {
         self.ball_hall = Some(data);
     }
 }
-
 impl Subscriber<DaviesBouldinIndexValue> for IndexTreeReturnValue {
     fn recieve_data(&mut self, data: Result<DaviesBouldinIndexValue, CalcError>) {
         self.davies_bouldin = Some(data);
@@ -242,6 +274,26 @@ impl Subscriber<RatkowskyIndexValue> for IndexTreeReturnValue {
         self.ratkowsky = Some(data);
     }
 }
+impl Subscriber<TrcovwIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<TrcovwIndexValue, CalcError>) {
+        self.trcovw = Some(data);
+    }
+}
+impl Subscriber<HubertIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<HubertIndexValue, CalcError>) {
+        self.hubert = Some(data);
+    }
+}
+impl Subscriber<SDIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<SDIndexValue, CalcError>) {
+        self.sd = Some(data);
+    }
+}
+impl Subscriber<SDBWIndexValue> for IndexTreeReturnValue {
+    fn recieve_data(&mut self, data: Result<SDBWIndexValue, CalcError>) {
+        self.sdbw = Some(data);
+    }
+}
 pub struct IndexTree<'a> {
     raw_data: RawDataNode<'a>,
     retval: Arc<Mutex<IndexTreeReturnValue>>,
@@ -259,10 +311,15 @@ impl<'a> IndexTree<'a> {
 #[derive(Default)]
 pub struct IndexTreeBuilder<'a> {
     retval: Arc<Mutex<IndexTreeReturnValue>>,
-    clusters_sender: Sender<'a, Arc<HashMap<i32, Array1<usize>>>>,
-    clusters_centroids_sender: Sender<'a, Arc<HashMap<i32, Array1<f64>>>>,
+    clusters_centroids_sender: Sender<'a, ClustersCentroidsValue>,
     raw_data_sender: Sender<'a, (ArrayView2<'a, f64>, ArrayView1<'a, i32>)>,
-    pairs_and_distances_sender: Sender<'a, Arc<(Vec<i8>, Vec<f64>)>>,
+    pairs_and_distances_sender: Sender<'a, (ArcArray1<i8>, ArcArray1<f64>)>,
+    counts_sender: Sender<'a, ArcArray1<usize>>,
+    wg_sender: Sender<'a, WGDValue>,
+    bg_sender: Sender<'a, BGDValue>,
+    td_sender: Sender<'a, TDValue>,
+    s_plus_and_minus_sender: Sender<'a, (usize, usize, usize)>,
+    scat_sender: Sender<'a, ScatValue>,
 }
 
 impl<'a> IndexTreeBuilder<'a> {
@@ -270,18 +327,15 @@ impl<'a> IndexTreeBuilder<'a> {
         let ball_hall = Arc::new(Mutex::new(BallHallNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(ball_hall.clone());
-        self.clusters_sender.add_subscriber(ball_hall.clone());
-        self.clusters_centroids_sender
-            .add_subscriber(ball_hall.clone());
+        self.wg_sender.add_subscriber(ball_hall.clone());
+        self.counts_sender.add_subscriber(ball_hall);
         self
     }
     pub fn add_silhouette(mut self) -> Self {
         let silhouette = Arc::new(Mutex::new(SilhouetteNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(silhouette.clone());
-        self.clusters_sender.add_subscriber(silhouette.clone());
+        self.raw_data_sender.add_subscriber(silhouette);
         self
     }
     pub fn add_davies_bouldin(mut self) -> Self {
@@ -290,98 +344,89 @@ impl<'a> IndexTreeBuilder<'a> {
             .clone()]))));
         self.raw_data_sender.add_subscriber(davies_bouldin.clone());
 
-        self.clusters_sender.add_subscriber(davies_bouldin.clone());
         self.clusters_centroids_sender
-            .add_subscriber(davies_bouldin.clone());
+            .add_subscriber(davies_bouldin);
         self
     }
     pub fn add_calinski_harabasz(mut self) -> Self {
         let calinski_harabasz = Arc::new(Mutex::new(CalinskiHarabaszNode::new(Sender::new(vec![
             self.retval.clone(),
         ]))));
-        self.raw_data_sender
-            .add_subscriber(calinski_harabasz.clone());
+        self.wg_sender.add_subscriber(calinski_harabasz.clone());
 
-        self.clusters_sender
-            .add_subscriber(calinski_harabasz.clone());
-        self.clusters_centroids_sender
-            .add_subscriber(calinski_harabasz.clone());
+        self.bg_sender.add_subscriber(calinski_harabasz.clone());
+        self.counts_sender.add_subscriber(calinski_harabasz);
         self
     }
     pub fn add_c_index(mut self) -> Self {
         let c_index = Arc::new(Mutex::new(CIndexNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(c_index.clone());
+        self.pairs_and_distances_sender.add_subscriber(c_index);
         self
     }
     pub fn add_dunn(mut self) -> Self {
         let dunn = Arc::new(Mutex::new(DunnNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(dunn.clone());
+        self.pairs_and_distances_sender.add_subscriber(dunn);
         self
     }
     pub fn add_rubin(mut self) -> Self {
         let rubin = Arc::new(Mutex::new(RubinNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(rubin.clone());
-
-        self.clusters_centroids_sender.add_subscriber(rubin.clone());
+        self.wg_sender.add_subscriber(rubin.clone());
+        self.td_sender.add_subscriber(rubin);
         self
     }
     pub fn add_mariott(mut self) -> Self {
         let mariott = Arc::new(Mutex::new(MariottNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(mariott.clone());
+        self.wg_sender.add_subscriber(mariott.clone());
 
-        self.clusters_centroids_sender
-            .add_subscriber(mariott.clone());
+        self.counts_sender.add_subscriber(mariott);
         self
     }
     pub fn add_scott(mut self) -> Self {
         let scott = Arc::new(Mutex::new(ScottNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(scott.clone());
+        self.wg_sender.add_subscriber(scott.clone());
+        self.td_sender.add_subscriber(scott.clone());
 
-        self.clusters_centroids_sender.add_subscriber(scott.clone());
+        self.counts_sender.add_subscriber(scott);
         self
     }
     pub fn add_friedman(mut self) -> Self {
         let friedman = Arc::new(Mutex::new(FriedmanNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(friedman.clone());
-
-        self.clusters_sender.add_subscriber(friedman.clone());
-        self.clusters_centroids_sender
-            .add_subscriber(friedman.clone());
+        self.wg_sender.add_subscriber(friedman.clone());
+        self.bg_sender.add_subscriber(friedman);
         self
     }
     pub fn add_tau(mut self) -> Self {
         let tau = Arc::new(Mutex::new(TauNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(tau.clone());
-
-        self.pairs_and_distances_sender.add_subscriber(tau.clone());
+        self.s_plus_and_minus_sender.add_subscriber(tau.clone());
+        self.pairs_and_distances_sender.add_subscriber(tau);
         self
     }
     pub fn add_gamma(mut self) -> Self {
         let gamma = Arc::new(Mutex::new(GammaNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.pairs_and_distances_sender.add_subscriber(gamma);
+        self.s_plus_and_minus_sender.add_subscriber(gamma);
         self
     }
     pub fn add_gplus(mut self) -> Self {
         let gplus = Arc::new(Mutex::new(GplusNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(gplus.clone());
+        self.s_plus_and_minus_sender.add_subscriber(gplus.clone());
         self.pairs_and_distances_sender.add_subscriber(gplus);
         self
     }
@@ -389,55 +434,116 @@ impl<'a> IndexTreeBuilder<'a> {
         let tracew = Arc::new(Mutex::new(TracewNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(tracew.clone());
-        self.clusters_centroids_sender.add_subscriber(tracew);
+        self.wg_sender.add_subscriber(tracew);
         self
     }
     pub fn add_mcclain(mut self) -> Self {
         let mcclain = Arc::new(Mutex::new(McclainNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(mcclain);
+        self.pairs_and_distances_sender.add_subscriber(mcclain);
         self
     }
     pub fn add_ptbiserial(mut self) -> Self {
         let ptbiserial = Arc::new(Mutex::new(PtbiserialNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(ptbiserial);
+        self.pairs_and_distances_sender.add_subscriber(ptbiserial);
         self
     }
     pub fn add_ratkowsky(mut self) -> Self {
         let ratkowsky = Arc::new(Mutex::new(RatkowskyNode::new(Sender::new(vec![self
             .retval
             .clone()]))));
-        self.raw_data_sender.add_subscriber(ratkowsky.clone());
+        self.counts_sender.add_subscriber(ratkowsky.clone());
 
-        self.clusters_sender.add_subscriber(ratkowsky.clone());
-        self.clusters_centroids_sender.add_subscriber(ratkowsky);
+        self.td_sender.add_subscriber(ratkowsky.clone());
+        self.bg_sender.add_subscriber(ratkowsky);
+        self
+    }
+    pub fn add_trcovw(mut self) -> Self {
+        let trcovw = Arc::new(Mutex::new(TrcovwNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+
+        self.wg_sender.add_subscriber(trcovw);
+        self
+    }
+    pub fn add_hubert(mut self) -> Self {
+        let hubert = Arc::new(Mutex::new(HubertNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+
+        self.raw_data_sender.add_subscriber(hubert.clone());
+
+        self.clusters_centroids_sender.add_subscriber(hubert);
+        self
+    }
+    pub fn add_sd(mut self) -> Self {
+        let sd = Arc::new(Mutex::new(SDNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+
+        self.scat_sender.add_subscriber(sd.clone());
+
+        self.clusters_centroids_sender.add_subscriber(sd);
+        self
+    }
+    pub fn add_sdbw(mut self) -> Self {
+        let sdbw = Arc::new(Mutex::new(SDBWNode::new(Sender::new(vec![self
+            .retval
+            .clone()]))));
+
+        self.raw_data_sender.add_subscriber(sdbw.clone());
+        self.scat_sender.add_subscriber(sdbw.clone());
+
+        self.clusters_centroids_sender.add_subscriber(sdbw);
         self
     }
     pub fn finish(mut self) -> IndexTree<'a> {
+        if !self.scat_sender.is_empty() {
+            let scat = Arc::new(Mutex::new(ScatNode::new(self.scat_sender)));
+            self.raw_data_sender.add_subscriber(scat.clone());
+        }
+        if !self.td_sender.is_empty() {
+            let td = Arc::new(Mutex::new(TDNode::new(self.td_sender)));
+            self.raw_data_sender.add_subscriber(td.clone());
+        }
+        if !self.bg_sender.is_empty() {
+            let bgd = Arc::new(Mutex::new(BGDNode::new(self.bg_sender)));
+            self.raw_data_sender.add_subscriber(bgd.clone());
+            self.clusters_centroids_sender.add_subscriber(bgd);
+        }
+        if !self.wg_sender.is_empty() {
+            let wgd = Arc::new(Mutex::new(WGDNode::new(self.wg_sender)));
+            self.raw_data_sender.add_subscriber(wgd.clone());
+            self.clusters_centroids_sender.add_subscriber(wgd);
+        }
+        if !self.clusters_centroids_sender.is_empty() {
+            let clusters_centroids = Arc::new(Mutex::new(ClustersCentroidsNode::new(
+                self.clusters_centroids_sender,
+            )));
+            self.raw_data_sender
+                .add_subscriber(clusters_centroids.clone());
+            self.counts_sender.add_subscriber(clusters_centroids);
+        }
+        if !self.counts_sender.is_empty() {
+            let counts = Arc::new(Mutex::new(CountsNode::new(self.counts_sender)));
+            self.raw_data_sender.add_subscriber(counts);
+        }
+
+        if !self.s_plus_and_minus_sender.is_empty() {
+            let spm = Arc::new(Mutex::new(SPlusAndMinusNode::new(
+                self.s_plus_and_minus_sender,
+            )));
+            self.pairs_and_distances_sender.add_subscriber(spm);
+        }
         if !self.pairs_and_distances_sender.is_empty() {
             let pairs_and_distances = Arc::new(Mutex::new(PairsAndDistancesNode::new(
                 self.pairs_and_distances_sender,
             )));
             self.raw_data_sender.add_subscriber(pairs_and_distances);
         }
-        if !self.clusters_centroids_sender.is_empty() {
-            let clusters_centroids = Arc::new(Mutex::new(ClustersCentroidsNode::new(
-                self.clusters_centroids_sender,
-            )));
-            self.clusters_sender
-                .add_subscriber(clusters_centroids.clone());
-            self.raw_data_sender.add_subscriber(clusters_centroids);
-        }
-
-        if !self.clusters_sender.is_empty() {
-            let clusters = Arc::new(Mutex::new(ClustersNode::new(self.clusters_sender)));
-            self.raw_data_sender.add_subscriber(clusters);
-        }
-
         let raw_data = RawDataNode::new(self.raw_data_sender);
         IndexTree {
             raw_data,

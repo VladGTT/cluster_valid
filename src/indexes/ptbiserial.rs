@@ -1,9 +1,9 @@
-use crate::calc_error::CalcError;
-use ndarray::{Array1, ArrayView1, ArrayView2};
 use std::iter::zip;
 
+use crate::calc_error::CalcError;
+use ndarray::{ArcArray1, ArrayView1};
+
 use crate::sender::{Sender, Subscriber};
-use rayon::prelude::*;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PtbiserialIndexValue {
@@ -13,42 +13,32 @@ pub struct PtbiserialIndexValue {
 pub struct Index;
 
 impl Index {
-    fn compute(&self, x: &ArrayView2<f64>, y: &ArrayView1<i32>) -> Result<f64, CalcError> {
-        let (mut num_pairs_the_same_clust, mut num_pairs_dif_clust): (usize, usize) = (0, 0);
-        let (mut sum_dist_same_clust, mut sum_dist_dif_clust): (f64, f64) = (0.0, 0.0);
-        let num_pairs_total = x.nrows() * (x.nrows() - 1) / 2;
-        let mut distances: Array1<f64> = Array1::zeros(num_pairs_total);
-        let mut ctr = 0;
-        for (i, (row1, clust1)) in zip(x.rows(), y).enumerate() {
-            for (j, (row2, clust2)) in zip(x.rows(), y).enumerate() {
-                if i < j {
-                    let dist = (&row2 - &row1).pow2().sum().sqrt();
-                    distances[ctr] = dist;
-                    if clust1 == clust2 {
-                        sum_dist_same_clust += dist;
-                        num_pairs_the_same_clust += 1;
-                    } else {
-                        sum_dist_dif_clust += dist;
-                        num_pairs_dif_clust += 1;
-                    }
-                    ctr += 1;
-                }
-            }
-        }
-        let std = distances.std(0.);
-
-        let (num_pairs_the_same_clust, num_pairs_dif_clust, num_pairs_total) = (
-            num_pairs_the_same_clust as f64,
-            num_pairs_dif_clust as f64,
-            num_pairs_total as f64,
-        );
-
-        let value = (sum_dist_same_clust / num_pairs_the_same_clust
-            - sum_dist_dif_clust / num_pairs_dif_clust)
-            * (num_pairs_dif_clust * num_pairs_the_same_clust).sqrt()
-            / num_pairs_total;
-
-        Ok(value)
+    fn compute(
+        &self,
+        pairs_in_the_same_cluster: &ArrayView1<i8>,
+        distances: &ArrayView1<f64>,
+    ) -> Result<f64, CalcError> {
+        let nt = pairs_in_the_same_cluster.len() as f64;
+        let nw = pairs_in_the_same_cluster
+            .iter()
+            .filter(|i| **i == 1)
+            .count() as f64;
+        let sw = zip(pairs_in_the_same_cluster, distances)
+            .filter(|(p, _)| **p == 1)
+            .map(|(_, d)| *d)
+            .sum::<f64>();
+        let nb = pairs_in_the_same_cluster
+            .iter()
+            .filter(|i| **i == 0)
+            .count() as f64;
+        let sb = zip(pairs_in_the_same_cluster, distances)
+            .filter(|(p, _)| **p == 0)
+            .map(|(_, d)| *d)
+            .sum::<f64>();
+        // let std_d = distances.std(0.);
+        // let val = ((sb / nb - sw / nw) * (nw * nb / (nt * nt)).sqrt()) / std_d;
+        let val = ((sw / nw - sb / nb) * (nw * nb).sqrt()) / nt;
+        Ok(val)
     }
 }
 pub struct Node<'a> {
@@ -63,15 +53,12 @@ impl<'a> Node<'a> {
         }
     }
 }
-impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for Node<'a> {
-    fn recieve_data(
-        &mut self,
-        data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
-    ) {
+impl<'a> Subscriber<(ArcArray1<i8>, ArcArray1<f64>)> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<(ArcArray1<i8>, ArcArray1<f64>), CalcError>) {
         let res = match data.as_ref() {
-            Ok((x, y)) => self
+            Ok((p, d)) => self
                 .index
-                .compute(x, y)
+                .compute(&p.view(), &d.view())
                 .map(|val| PtbiserialIndexValue { val }),
             Err(err) => Err(err.clone()),
         };

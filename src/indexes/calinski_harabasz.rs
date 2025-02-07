@@ -1,8 +1,7 @@
+use super::helpers::{between_group_dispercion::BGDValue, within_group_dispercion::WGDValue};
 use crate::calc_error::{CalcError, CombineErrors};
-use ndarray::{Array1, ArrayView1, ArrayView2, Axis};
-use std::{collections::HashMap, sync::Arc};
-
 use crate::sender::{Sender, Subscriber};
+use ndarray::{ArcArray1, ArcArray2, ArrayView1, ArrayView2};
 
 #[derive(Clone, Copy, Debug)]
 pub struct CalinskiHarabaszIndexValue {
@@ -13,91 +12,71 @@ pub struct Index;
 impl Index {
     fn compute(
         &self,
-        x: &ArrayView2<f64>,
-
-        clusters_centroids: &HashMap<i32, Array1<f64>>,
-        clusters: &HashMap<i32, Array1<usize>>,
+        wg: &ArrayView2<f64>,
+        bg: &ArrayView2<f64>,
+        counts: &ArrayView1<usize>,
     ) -> Result<f64, CalcError> {
-        let number_of_objects = x.nrows() as f64;
-        let data_center = x.mean_axis(Axis(0)).ok_or("Cant calc data centroid")?;
-        let number_of_clusters = clusters.keys().len() as f64;
-
-        let inbetween_group_dispersion = clusters_centroids
-            .iter()
-            .map(|(i, c)| (&data_center - c).pow2().sum() * clusters[i].len() as f64)
-            .sum::<f64>();
-
-        let within_group_dispersion = clusters
-            .iter()
-            .map(|(c, arr)| {
-                arr.iter()
-                    .map(|i| (&x.row(*i) - &clusters_centroids[c]).pow2().sum())
-                    .sum::<f64>()
-            })
-            .sum::<f64>();
-        let val = (inbetween_group_dispersion / (number_of_clusters - 1.0))
-            / (within_group_dispersion / (number_of_objects - number_of_clusters));
-
+        let trace_wg = wg.diag().sum();
+        let trace_bg = bg.diag().sum();
+        let q = counts.len() as f64;
+        let n = counts.sum() as f64;
+        let val = (trace_bg / (q - 1.)) * ((n - q) / trace_wg);
         Ok(val)
     }
 }
 pub struct Node<'a> {
     index: Index,
-    raw_data: Option<Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>>,
-    clusters: Option<Result<Arc<HashMap<i32, Array1<usize>>>, CalcError>>,
-    clusters_centroids: Option<Result<Arc<HashMap<i32, Array1<f64>>>, CalcError>>,
+    wg: Option<Result<ArcArray2<f64>, CalcError>>,
+    bg: Option<Result<ArcArray2<f64>, CalcError>>,
+    counts: Option<Result<ArcArray1<usize>, CalcError>>,
     sender: Sender<'a, CalinskiHarabaszIndexValue>,
 }
 
 impl<'a> Node<'a> {
     fn process_when_ready(&mut self) {
-        if let (Some(raw_data), Some(clusters), Some(clusters_centroids)) = (
-            self.raw_data.as_ref(),
-            self.clusters.as_ref(),
-            self.clusters_centroids.as_ref(),
-        ) {
-            let res = match raw_data.combine(clusters).combine(clusters_centroids) {
-                Ok((((x, _), cls), cls_ctrds)) => self
+        if let (Some(wg), Some(bg), Some(counts)) =
+            (self.wg.as_ref(), self.bg.as_ref(), self.counts.as_ref())
+        {
+            let res = match wg.combine(bg).combine(counts) {
+                Ok(((wg, bg), cnts)) => self
                     .index
-                    .compute(x, cls_ctrds, cls)
+                    .compute(&wg.view(), &bg.view(), &cnts.view())
                     .map(|val| CalinskiHarabaszIndexValue { val }),
                 Err(err) => Err(err),
             };
             self.sender.send_to_subscribers(res);
-            self.raw_data = None;
-            self.clusters = None;
-            self.clusters_centroids = None;
+            self.wg = None;
+            self.bg = None;
+            self.counts = None;
         }
     }
     pub fn new(sender: Sender<'a, CalinskiHarabaszIndexValue>) -> Self {
         Self {
             index: Index,
-            raw_data: None,
-            clusters_centroids: None,
-            clusters: None,
+            bg: None,
+            wg: None,
+            counts: None,
             sender,
         }
     }
 }
 
-impl<'a> Subscriber<(ArrayView2<'a, f64>, ArrayView1<'a, i32>)> for Node<'a> {
-    fn recieve_data(
-        &mut self,
-        data: Result<(ArrayView2<'a, f64>, ArrayView1<'a, i32>), CalcError>,
-    ) {
-        self.raw_data = Some(data);
+impl<'a> Subscriber<ArcArray1<usize>> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<ArcArray1<usize>, CalcError>) {
+        self.counts = Some(data);
         self.process_when_ready();
     }
 }
-impl<'a> Subscriber<Arc<HashMap<i32, Array1<usize>>>> for Node<'a> {
-    fn recieve_data(&mut self, data: Result<Arc<HashMap<i32, Array1<usize>>>, CalcError>) {
-        self.clusters = Some(data);
+impl<'a> Subscriber<WGDValue> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<WGDValue, CalcError>) {
+        self.wg = Some(data.map(|v| v.val));
         self.process_when_ready();
     }
 }
-impl<'a> Subscriber<Arc<HashMap<i32, Array1<f64>>>> for Node<'a> {
-    fn recieve_data(&mut self, data: Result<Arc<HashMap<i32, Array1<f64>>>, CalcError>) {
-        self.clusters_centroids = Some(data);
+
+impl<'a> Subscriber<BGDValue> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<BGDValue, CalcError>) {
+        self.bg = Some(data.map(|v| v.val));
         self.process_when_ready();
     }
 }

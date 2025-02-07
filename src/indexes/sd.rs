@@ -1,43 +1,31 @@
-use super::*;
-use std::ops::AddAssign;
+use crate::calc_error::{CalcError, CombineErrors};
+use ndarray::{ArcArray1, ArcArray2, ArrayView1, ArrayView2};
 
-pub struct IndexScat {}
-pub struct IndexDis {}
-impl Computable for IndexScat {
-    fn compute(&self, x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, CalcError> {
-        let features_variances = x.var_axis(Axis(0), 0.);
-        let clusters = calc_clusters(&y);
-        let cluster_centers = calc_clusters_centers(&clusters, &x);
+use crate::sender::{Sender, Subscriber};
 
-        let mut stor: Vec<f64> = Vec::with_capacity(clusters.keys().len());
+use super::helpers::{clusters_centroids::ClustersCentroidsValue, scat::ScatValue};
 
-        for (c, arr) in clusters {
-            let mut row = Array1::zeros(x.ncols());
-            for i in arr.iter() {
-                row.add_assign(&(&x.row(*i) - &cluster_centers[&c]).powi(2));
-            }
-            row /= arr.len() as f64;
-            stor.push(calc_vector_euclidean_length(&row.view()));
-        }
-        let S = Array1::from_vec(stor).mean().ok_or("Cant calculate mean")?
-            / calc_vector_euclidean_length(&features_variances.view());
-
-        Ok(S)
-    }
+#[derive(Clone, Copy, Debug)]
+pub struct SDIndexValue {
+    pub val: f64,
 }
-impl Computable for IndexDis {
-    fn compute(&self, x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, CalcError> {
+#[derive(Default)]
+pub struct Index;
+
+impl Index {
+    pub fn compute(
+        &self,
+        scat: &f64,
+        clusters_centroids: &ArrayView2<f64>,
+    ) -> Result<f64, CalcError> {
         let mut d = 0.0;
         let mut d_max = f64::MIN;
         let mut d_min = f64::MAX;
-        let clusters = calc_clusters(&y);
-        let cluster_centroids = calc_clusters_centers(&clusters, &x);
-
-        for (i, row1) in &cluster_centroids {
+        for (i, row1) in clusters_centroids.rows().into_iter().enumerate() {
             let mut dist_acum = 0.0;
-            for (j, row2) in &cluster_centroids {
+            for (j, row2) in clusters_centroids.rows().into_iter().enumerate() {
                 if i != j {
-                    let dist = find_euclidean_distance(&row1.view(), &row2.view());
+                    let dist = (&row2 - &row1).pow2().sum().sqrt();
                     dist_acum += dist;
                     if i < j {
                         if dist > d_max {
@@ -54,6 +42,86 @@ impl Computable for IndexDis {
             }
         }
         let value = d * d_max / d_min;
+
         Ok(value)
     }
 }
+
+pub struct Node<'a> {
+    index: Index,
+    scat: Option<Result<(f64, ArcArray1<f64>, f64), CalcError>>,
+    clusters_centroids: Option<Result<ArcArray2<f64>, CalcError>>,
+    sender: Sender<'a, SDIndexValue>,
+}
+
+impl<'a> Node<'a> {
+    fn process_when_ready(&mut self) {
+        if let (Some(scat), Some(clusters_centroids)) =
+            (self.scat.as_ref(), self.clusters_centroids.as_ref())
+        {
+            let res = match scat.combine(clusters_centroids) {
+                Ok(((val, _, _), cls_ctrds)) => self
+                    .index
+                    .compute(val, &cls_ctrds.view())
+                    .map(|val| SDIndexValue { val }),
+                Err(err) => Err(err),
+            };
+            self.sender.send_to_subscribers(res);
+            self.scat = None;
+            self.clusters_centroids = None;
+        }
+    }
+    pub fn new(sender: Sender<'a, SDIndexValue>) -> Self {
+        Self {
+            index: Index,
+            scat: None,
+            clusters_centroids: None,
+            sender,
+        }
+    }
+}
+
+impl<'a> Subscriber<ScatValue> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<ScatValue, CalcError>) {
+        self.scat = Some(data.map(|v| (v.val, v.clusters_vars, v.var)));
+        self.process_when_ready();
+    }
+}
+impl<'a> Subscriber<ClustersCentroidsValue> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<ClustersCentroidsValue, CalcError>) {
+        self.clusters_centroids = Some(data.map(|v| v.val));
+        self.process_when_ready();
+    }
+}
+// impl Computable for IndexDis {
+//     fn compute(&self, x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, CalcError> {
+//         let mut d = 0.0;
+//         let mut d_max = f64::MIN;
+//         let mut d_min = f64::MAX;
+//         let clusters = calc_clusters(&y);
+//         let cluster_centroids = calc_clusters_centers(&clusters, &x);
+//
+//         for (i, row1) in &cluster_centroids {
+//             let mut dist_acum = 0.0;
+//             for (j, row2) in &cluster_centroids {
+//                 if i != j {
+//                     let dist = find_euclidean_distance(&row1.view(), &row2.view());
+//                     dist_acum += dist;
+//                     if i < j {
+//                         if dist > d_max {
+//                             d_max = dist;
+//                         }
+//                         if dist < d_min {
+//                             d_min = dist;
+//                         }
+//                     }
+//                 }
+//             }
+//             if dist_acum != 0.0 {
+//                 d += 1. / dist_acum;
+//             }
+//         }
+//         let value = d * d_max / d_min;
+//         Ok(value)
+//     }
+// }

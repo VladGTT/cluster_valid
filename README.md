@@ -1,8 +1,9 @@
 ## PLAN  
 * Implement indexes -- partially done
 * Test calculation correctness -- partially done
-* Refactor code to extract common code -- in process
-* Create wrapper that allows to call indexes in parallel -- in process
+* Refactor code to extract common code -- done 
+* Create wrapper that allows to call indexes in parallel -- done
+* Move compute() from Index class to Node to reduce complexity -- 
 * Create python wrapper -- 
 * Implement additional functions on python side -- 
 ## Architecture  

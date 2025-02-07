@@ -1,19 +1,44 @@
-use super::*;
+use super::helpers::within_group_dispercion::WGDValue;
+use crate::calc_error::CalcError;
+use crate::sender::{Sender, Subscriber};
+use ndarray::{ArrayView2, Axis};
 
-pub struct Index {}
-impl Computable for Index {
-    fn compute(&self, x: ArrayView2<f64>, y: ArrayView1<i32>) -> Result<f64, CalcError> {
-        let cluster_centroids = calc_clusters_centers(&calc_clusters(&y), &x);
-        let mut diffs: Array2<f64> = Array2::zeros((x.nrows(), x.ncols()));
-        for (i, (x, y)) in zip(x.rows(), y).enumerate() {
-            let temp = &cluster_centroids[y] - &x;
-            diffs.row_mut(i).assign(&temp);
+#[derive(Clone, Copy, Debug)]
+pub struct TrcovwIndexValue {
+    pub val: f64,
+}
+#[derive(Default)]
+pub struct Index;
+impl Index {
+    fn compute(&self, wg: &ArrayView2<f64>) -> Result<f64, CalcError> {
+        let var = wg.var_axis(Axis(0), 0.);
+        let val = var.sum();
+        Ok(val)
+    }
+}
+pub struct Node<'a> {
+    index: Index,
+    sender: Sender<'a, TrcovwIndexValue>,
+}
+
+impl<'a> Node<'a> {
+    pub fn new(sender: Sender<'a, TrcovwIndexValue>) -> Self {
+        Self {
+            index: Index,
+            sender,
         }
-        let w = diffs.t().dot(&diffs);
+    }
+}
 
-        let w_norm = &w - &w.mean_axis(Axis(0)).ok_or("Cant calc mean")?;
-        let n = w.nrows() as f64;
-        let value = (w_norm.t().dot(&w_norm) / n).diag().sum();
-        Ok(value)
+impl<'a> Subscriber<WGDValue> for Node<'a> {
+    fn recieve_data(&mut self, data: Result<WGDValue, CalcError>) {
+        let res = match data.map(|v| v.val) {
+            Ok(wg) => self
+                .index
+                .compute(&wg.view())
+                .map(|val| TrcovwIndexValue { val }),
+            Err(err) => Err(err),
+        };
+        self.sender.send_to_subscribers(res);
     }
 }

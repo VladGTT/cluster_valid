@@ -21,9 +21,9 @@ impl Index {
         bg: &ArrayView2<f64>,
     ) -> Result<f64, CalcError> {
         let diag_bg = bg.diag();
-        let diag_tg = tg.diag();
-        let div = &diag_bg / &diag_tg;
-        let r = div.mean().ok_or(CalcError::from("Cant calculate mean"))?;
+        let diag_tg = tg.dial();
+        let div = diag_bg / diag_tg;
+        let r = div.mean_axis(Axis(0));
         let q = counts.len() as f64;
         let value = (r / q).sqrt();
         Ok(value)

@@ -1,40 +1,39 @@
 use crate::calc_error::CalcError;
 use crate::sender::{Sender, Subscriber};
 use itertools::*;
-use ndarray::{Array1, ArrayView1, ArrayView2};
-use std::{collections::HashMap, ops::AddAssign, sync::Arc};
+use ndarray::{ArrayView1, ArrayView2};
+use std::sync::Arc;
 #[derive(Default)]
 pub struct Clusters;
 impl Clusters {
-    pub fn compute(
-        &self,
-        cluster_indexes: &ArrayView1<i32>,
-    ) -> Result<HashMap<i32, Array1<usize>>, CalcError> {
-        let mut cluster_indexes_with_counter = cluster_indexes
+    pub fn compute(&self, cluster_indexes: &ArrayView1<i32>) -> Result<Vec<Vec<usize>>, CalcError> {
+        // let clusters = cluster_indexes
+        //     .iter()
+        //     .enumerate()
+        //     .map(|(i, c)| (*c, i))
+        //     .into_group_map();
+        // let res = clusters
+        //     .into_iter()
+        //     .map(|(i, val)| (i, Array1::from_vec(val)))
+        //     .collect();
+        let res = cluster_indexes
             .iter()
-            .counts()
+            .enumerate()
+            .map(|(i, c)| (*c, i))
+            .into_group_map()
             .into_iter()
-            .map(|(i, n)| (*i, (Array1::zeros(n), 0)))
-            .collect::<HashMap<i32, (Array1<usize>, usize)>>();
-        for (i, c) in cluster_indexes.iter().enumerate() {
-            let (arr, ctr) = cluster_indexes_with_counter.get_mut(c).unwrap();
-            arr[*ctr] = i;
-            ctr.add_assign(1);
-        }
-
-        let res = cluster_indexes_with_counter
-            .into_iter()
-            .map(|(i, (arr, _))| (i, Array1::from(arr)))
-            .collect::<HashMap<i32, Array1<usize>>>();
+            .sorted_by(|(a, _), (b, _)| a.cmp(b))
+            .map(|(_, v)| v)
+            .collect::<Vec<Vec<usize>>>();
         Ok(res)
     }
 }
 pub struct ClustersNode<'a> {
     index: Clusters,
-    sender: Sender<'a, Arc<HashMap<i32, Array1<usize>>>>,
+    sender: Sender<'a, Arc<Vec<Vec<usize>>>>,
 }
 impl<'a> ClustersNode<'a> {
-    pub fn new(sender: Sender<'a, Arc<HashMap<i32, Array1<usize>>>>) -> Self {
+    pub fn new(sender: Sender<'a, Arc<Vec<Vec<usize>>>>) -> Self {
         Self {
             index: Clusters,
             sender,
